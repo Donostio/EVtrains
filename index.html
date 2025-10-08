@@ -1,69 +1,109 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>07:44 Streatham → Wimbledon</title>
-  <style>
-    body { font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; background:#fafafa; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; max-width: 700px; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.05);}
-    .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; margin: 6px 0; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-weight: 600; text-transform: capitalize; }
-    .on_time { background:#e8f5e9; color:#1b5e20; }
-    .delayed { background:#fff8e1; color:#f57f17; }
-    .early { background:#e3f2fd; color:#1565c0; }
-    .cancelled { background:#ffebee; color:#b71c1c; }
-    code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>STE → WIM · 07:44</title>
+<style>
+  :root{
+    --bg:#000;
+    --white:#eaeaea;
+    --green:#58d27a;   /* on time */
+    --amber:#ffa000;   /* delayed */
+    --red:#ff3b30;     /* cancelled */
+    --mute:#9aa0a6;    /* brackets */
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--white);
+    display:grid; place-items:center; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{ text-align:center; }
+  .route{
+    font-weight:800; letter-spacing:.06em; margin-bottom:.6rem;
+  }
+  .time{
+    font-weight:800; line-height:1.1;
+  }
+  /* responsive sizing */
+  .route{ font-size: clamp(14px, 4vw, 28px); }
+  .time { font-size: clamp(28px, 9vw, 64px); }
+  .sub { font-size: clamp(12px, 3.5vw, 18px); opacity:.9; margin-top:.4rem }
+  .strike{ text-decoration: line-through; }
+  .green{ color:var(--green) }
+  .amber{ color:var(--amber) }
+  .red{ color:var(--red) }
+  .mute{ color:var(--mute) }
+</style>
 </head>
 <body>
-  <h1>07:44 Streatham → Wimbledon (Weekdays)</h1>
-  <div id="app" class="card">Loading…</div>
+<div class="wrap" id="app">Loading…</div>
 
-  <script>
-    const fmt = hhmm => hhmm ? hhmm.slice(0,2)+":"+hhmm.slice(2) : "—";
-    const toMins = hhmm => hhmm ? parseInt(hhmm.slice(0,2))*60 + parseInt(hhmm.slice(2)) : null;
+<script>
+const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
+const mins = t => t ? (+t.slice(0,2))*60 + (+t.slice(2)) : null;
 
-    function timeMarkup(booked, real) {
-      if(!booked && !real) return "—";
-      if(!real || real === booked) return `<b>${fmt(booked)}</b>`;
-      const diff = toMins(real) - toMins(booked);
-      const color = diff > 0 ? "#c00" : diff < 0 ? "#080" : "#000";
-      return `<b style="color:${color}">${fmt(real)}</b> <span style="color:#666;">(${fmt(booked)})</span>`;
-    }
+function render(data){
+  const el = document.getElementById('app');
+  if(data.error){ el.innerHTML = `<div class="route red">STE-WIM</div><div class="time red">Error</div>`; return; }
 
-    async function load() {
-      const el = document.getElementById('app');
-      try {
-        const res = await fetch('./status.json', { cache: 'no-store' });
-        if(!res.ok) throw new Error("status.json not found");
-        const s = await res.json();
-        if(s.error){ el.innerHTML = `<p>⚠️ Error: ${s.error}</p>`; return; }
+  const o = data.origin || {};
+  const d = data.destination || {};
+  const bookedDep = o.bookedDeparture || data.gbttBookedDeparture || null;
+  const realDep   = o.realtimeDeparture || null;
+  const bookedArr = d.bookedArrival || null;
+  const realArr   = d.realtimeArrival || null;
 
-        const o = s.origin || {};
-        const d = s.destination || {};
-        const status = s.status || "unknown";
+  // Decide status
+  let status = (data.status || "on_time");
+  if (o?.isCancelled || d?.isCancelled) status = "cancelled";
 
-        const depTime = timeMarkup(o.bookedDeparture || s.gbttBookedDeparture, o.realtimeDeparture);
-        const arrTime = timeMarkup(d.bookedArrival, d.realtimeArrival);
-        const depPlat = o.platform || "—";
-        const arrPlat = d.platform || "—";
+  const headerClass =
+    status === "cancelled" ? "red" :
+    status === "delayed"   ? "amber" :
+    status === "early"     ? "green" : ""; // route stays white when on time
 
-        const delayStr = (mins) => mins==null ? "—" : (mins===0? "On time" : (mins>0? `+${mins} min` : `${mins} min`));
+  let bodyHTML = "";
 
-        el.innerHTML = `
-          <div class="row"><div>Snapshot:</div><div>${new Date(s.generatedAt).toLocaleString()}</div></div>
-          <div class="row"><div>Status:</div><div><span class="badge ${status}">${status.replace('_',' ')}</span></div></div>
-          <div class="row"><div>Origin (STE) dep:</div><div>${depTime} · Plat <b>${depPlat}</b> · ${delayStr(o.departureDelayMins)}</div></div>
-          <div class="row"><div>Destination (WIM) arr:</div><div>${arrTime} · Plat <b>${arrPlat}</b> · ${delayStr(d.arrivalDelayMins)}</div></div>
-          <div class="row"><div>Service UID:</div><div><code>${s.serviceUid || '—'}</code> (run ${s.runDate || '—'})</div></div>
-          <div class="row"><div>Data:</div><div><a href="${s.searchUrl}" target="_blank">search</a> · <a href="${s.detailUrl}" target="_blank">service</a></div></div>
-        `;
-      } catch (e) {
-        el.innerHTML = `<p>⚠️ ${e.message}</p>`;
-      }
-    }
-    load();
-  </script>
+  if(status === "cancelled"){
+    bodyHTML = `<div class="time red"><span class="strike">${fmt(bookedDep)}</span> CANCELLED</div>`;
+  } else if(status === "delayed" || status === "early"){
+    const dep = realDep ? `<span class="amber">${fmt(realDep)}</span> <span class="mute">(${fmt(bookedDep)})</span>`
+                        : `<span class="amber">${fmt(bookedDep)}</span>`;
+    const arr = realArr ? `<span class="amber">${fmt(realArr)}</span> <span class="mute">(${fmt(bookedArr)})</span>`
+                        : (bookedArr ? `<span class="amber">${fmt(bookedArr)}</span>` : "");
+    bodyHTML = `<div class="time">${dep}${arr ? " <span class='mute'>-</span> "+arr : ""}</div>`;
+  } else {
+    // on time (or unknown -> treat as on time visual)
+    const show = realDep || bookedDep;
+    bodyHTML = `<div class="time green">${fmt(show)}</div>`;
+  }
+
+  // Optional tiny subline with platforms if you want (comment out if too busy)
+  const sub = (o.platform || d.platform)
+    ? `<div class="sub mute">${o.platform ? "Plat "+o.platform : ""}${o.platform&&d.platform ? " · " : ""}${d.platform ? "Plat "+d.platform : ""}</div>`
+    : "";
+
+  el.innerHTML = `
+    <div class="route ${headerClass}">STE-WIM</div>
+    ${bodyHTML}
+    ${sub}
+  `;
+}
+
+async function load(){
+  try{
+    const res = await fetch('./status.json?ts='+Date.now(), { cache: 'no-store' });
+    if(!res.ok) throw new Error('status.json not found');
+    const data = await res.json();
+    render(data);
+  }catch(e){
+    render({ error:String(e) });
+  }
+}
+
+load();
+setInterval(load, 60000); // refresh every 60s
+</script>
 </body>
 </html>
