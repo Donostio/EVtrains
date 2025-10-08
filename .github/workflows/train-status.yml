@@ -1,40 +1,68 @@
-// scripts/fetch_rtt.js
-import fs from 'fs';
+name: Train Status (RTT)
 
-// --- ENV ---
+on:
+  schedule:
+    - cron: "*/5 5-6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Bypass time gate (run now at any time)"
+        required: false
+        default: "false"
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      ORIGIN_CRS: STE
+      DEST_CRS: WIM
+      BOOKED_DEPART_HHMM: "0744"
+      LONDON_TZ: Europe/London
+      START_LOCAL_TIME: "06:30"
+      END_LOCAL_TIME: "07:15"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create fetch script
+        run: |
+          mkdir -p scripts
+          cat > scripts/fetch_rtt.js <<'EOF'
+// scripts/fetch_rtt.js (CommonJS)
+const fs = require('fs');
+
 const USER = process.env.RTT_USERNAME;
 const PASS = process.env.RTT_PASSWORD;
 const ORIGIN = process.env.ORIGIN_CRS || "STE";
-const DEST = process.env.DEST_CRS   || "WIM";
-const GBTT = process.env.BOOKED_DEPART_HHMM || "0744"; // "HHmm"
+const DEST = process.env.DEST_CRS || "WIM";
+const GBTT = process.env.BOOKED_DEPART_HHMM || "0744";
 const LONDON_TZ = process.env.LONDON_TZ || "Europe/London";
 
-// --- helpers ---
 const pad = n => String(n).padStart(2,'0');
-const hhmmToMinutes = s => parseInt(s.slice(0,2))*60 + parseInt(s.slice(2),10);
+const hhmmToMinutes = s => parseInt(s.slice(0,2),10)*60 + parseInt(s.slice(2),10);
 const diffMinutes = (a,b) => hhmmToMinutes(a) - hhmmToMinutes(b);
 
 function getLocalParts(date = new Date(), tz = LONDON_TZ) {
-  return new Intl.DateTimeFormat('en-GB', {
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: tz,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false
   }).formatToParts(date).reduce((acc,p)=> (acc[p.type]=p.value, acc), {});
+  return parts;
 }
 
-/**
- * Date selection rule (per your request):
- * - From 00:00 up to 16:59 local → use **today** (today’s 07:44).
- * - From 17:00 onward           → use **tomorrow** (tomorrow’s 07:44).
- */
+// Rule: today until 17:00, then tomorrow
 function chooseServiceDate() {
   const now = new Date();
   const lp = getLocalParts(now);
-  const hour = parseInt(lp.hour, 10);
-
   let y = parseInt(lp.year,10), m = parseInt(lp.month,10), d = parseInt(lp.day,10);
+  const hour = parseInt(lp.hour,10);
   if (hour >= 17) {
-    // roll to tomorrow (use UTC midday anchor to avoid DST edge cases)
     const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0));
     dt.setUTCDate(dt.getUTCDate() + 1);
     const nlp = getLocalParts(dt);
@@ -45,9 +73,9 @@ function chooseServiceDate() {
 
 const { yyyy, mm, dd } = chooseServiceDate();
 const dateStr = `${yyyy}/${mm}/${dd}`;
-// generatedAt: local wall clock ISO
-const localNow = getLocalParts();
-const generatedAt = new Date(`${localNow.year}-${localNow.month}-${localNow.day}T${localNow.hour}:${localNow.minute}:00`).toISOString();
+
+const nowLP = getLocalParts();
+const generatedAt = new Date(`${nowLP.year}-${nowLP.month}-${nowLP.day}T${nowLP.hour}:${nowLP.minute}:00`).toISOString();
 
 const b64 = Buffer.from(`${USER}:${PASS}`).toString('base64');
 const headers = { "Authorization": `Basic ${b64}`, "Accept": "application/json" };
@@ -60,7 +88,6 @@ async function httpJson(url){
 
 const findCall = (crs, service) => service?.locations?.find(l => l.crs === crs) || null;
 
-// try filtered search first, then unfiltered as fallback
 async function searchCandidates() {
   const filtered = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${dateStr}/${GBTT}`;
   try {
@@ -141,7 +168,7 @@ async function searchCandidates() {
     }
 
     const origin = callInfo(findCall(ORIGIN, detail));
-    const dest   = callInfo(findCall(DEST, detail));
+    const dest = callInfo(findCall(DEST, detail));
 
     let overall = "on_time";
     if(origin?.isCancelled || dest?.isCancelled) overall = "cancelled";
@@ -173,3 +200,33 @@ async function searchCandidates() {
     process.exit(0);
   }
 })();
+EOF
+
+      - name: Time gate (Europe/London window or force)
+        env:
+          START: ${{ env.START_LOCAL_TIME }}
+          END: ${{ env.END_LOCAL_TIME }}
+          LONDON_TZ: ${{ env.LONDON_TZ }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          if [ "${FORCE}" = "true" ]; then
+            echo "Force run enabled; bypassing time gate."
+            exit 0
+          fi
+          node -e "const tz=process.env.LONDON_TZ||'Europe/London';const start=process.env.START||'06:30';const end=process.env.END||'07:15';const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false});const hm=fmt.format(new Date());const toM=s=>parseInt(s.slice(0,2))*60+parseInt(s.slice(3,5));const cur=toM(hm),sM=toM(start),eM=toM(end);const ok=(cur>=sM&&cur<=eM);console.log('Local time:',hm,'(',tz,') window',start,'-',end,'->',ok);if(!ok)process.exit(78);"
+
+      - name: Fetch Realtime Trains + write files
+        if: ${{ success() }}
+        env:
+          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
+          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
+        run: node scripts/fetch_rtt.js
+
+      - name: Commit status.json
+        if: ${{ success() }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add status.json history.jsonl
+          git commit -m "Update train status snapshot" || echo "No changes"
+          git push
