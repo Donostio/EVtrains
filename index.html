@@ -12,92 +12,79 @@
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 
-  /* Center the whole 2×2 board and reduce the middle gap */
+  /* Centered 2×2 board */
   .board{
     height:100%;
-    max-width:1320px;              /* pulls tiles toward the center on wide screens */
+    max-width:1320px;
     margin:0 auto;
     display:grid;
     grid-template-columns:1fr 1fr;
-    grid-template-rows:1fr 1fr;
-    gap:24px;                      /* consistent spacing between tiles */
+    grid-template-rows:1fr 1fr;      /* portrait override below gives BL more room */
+    gap:24px;
     padding:24px;
     box-sizing:border-box;
   }
-  .tile{
-    background:#000;               /* true black tiles */
-    color:var(--fg);
-    display:grid;
-    place-items:center;
-    overflow:hidden;
-    border-radius:0;               /* no borders */
-  }
-  .inner{ width:100%; height:100%; display:grid; place-items:center; }
+  .tile{ background:#000; color:var(--fg); display:grid; place-items:center; overflow:hidden }
+  .inner{ width:100%; height:100%; display:grid; place-items:center }
+  iframe{ width:100%; height:100%; border:none; background:#000 }
 
-  iframe{ width:100%; height:100%; border:none; background:#000; }
-
-  /* ---------- TOP-LEFT (STE→WIM) ---------- */
-  #tl_app{ text-align:center }
-  .route{ font-weight:800; letter-spacing:.06em; margin-bottom:.5rem;
-          font-size:clamp(14px,2.2vw,22px) }
-  .time{  font-weight:800; line-height:1.1; white-space:nowrap;
-          font-size:clamp(32px,6vw,72px) }
-  .sub{   font-size:clamp(12px,1.6vw,16px); color:var(--muted); margin-top:.35rem }
-  .small{ font-size:.5em }
+  /* ---------- TL (STE→WIM) ---------- */
+  #tl_app{text-align:center}
+  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.5rem;font-size:clamp(14px,2.2vw,22px)}
+  .time{font-weight:800;line-height:1.1;white-space:nowrap;font-size:clamp(32px,6vw,72px)}
+  .sub{font-size:clamp(12px,1.6vw,16px);color:var(--muted);margin-top:.3rem}
+  .small{font-size:.5em}
   .strike{text-decoration:line-through}
   .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
 
-  /* ---------- BOTTOM-LEFT (SRC→CLJ→IMW) ---------- */
-  #bl_app{ width:min(95%, 980px); margin:0 auto; }
+  /* ---------- BL (SRC→CLJ→IMW) ---------- */
+  #bl_app{ width:min(95%,980px); margin:0 auto }
 
-  .title{
-    color:var(--fg); font-weight:800; letter-spacing:.06em; text-align:center;
-    font-size:clamp(12px,1.6vw,18px); margin:0;
-  }
-  .time-xs{
-    font-weight:800; line-height:1.1; white-space:nowrap;
-    font-size:clamp(14px,1.9vw,24px);
-  }
+  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em; text-align:center;
+          font-size:clamp(12px,1.6vw,18px); margin:0 }
+  .time-xs{ font-weight:800; line-height:1.1; white-space:nowrap; font-size:clamp(14px,1.9vw,24px) }
 
+  /* Direct block (tighter gaps) */
   .direct-block{ text-align:center; width:100% }
-  .direct-line{ margin-top:.25rem }
-  .direct-gap{ height:clamp(12px,1.5vw,20px) }
+  .direct-line{ margin-top:.12rem }           /* ↓ tighter title → time gap */
+  .direct-gap{  height:clamp(10px,1.2vw,16px) }
 
   /* 3-column “table” */
   .xfer-wrap{ width:100%; display:grid; grid-template-columns:1fr; row-gap:10px }
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1fr;   /* transfer sits close to times */
-    column-gap:16px;
+    grid-template-columns: 1fr 0.9fr 1fr;     /* Transfer close to times */
+    column-gap:14px;
     align-items:end;
   }
-  .xfer-header .title{ margin-bottom:.2rem }
+  .xfer-header .title{ margin-bottom:.16rem }
+
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1fr;   /* match header */
-    column-gap:16px;
+    grid-template-columns: 1fr 0.9fr 1fr;     /* match header */
+    column-gap:14px;
     align-items:center;
     padding:6px 0;
   }
 
-  /* Left column: times then platform (on its own line) */
+  /* Left column: times then platform (own line) */
   .left-cell{ display:flex; flex-direction:column; align-items:center; text-align:center }
 
-  /* Middle & Right columns: maintain pair-on-one-line behaviour */
-  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.7rem }
-  .right-cell{ align-items:flex-start; text-align:left }
+  /* Middle & Right columns */
+  .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-end } /* right-align text */
+  .right-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-start; text-align:left }
 
-  /* One connection row: transfer | times, kept together */
+  /* A connection row: transfer | times */
   .pair{
     display:grid;
-    grid-template-columns: max-content max-content;
+    grid-template-columns:max-content max-content;
     align-items:baseline;
-    column-gap:12px;
-    white-space:nowrap;        /* prevent split across multiple lines */
+    column-gap:10px;                          /* a little closer to times */
+    white-space:nowrap;
   }
   .transfer{
     font-size:clamp(12px,1.7vw,18px);
-    word-break:keep-all;
+    text-align:right;                         /* arrows line up */
   }
   .trans-ok{ color:var(--fg) }
   .trans-warn{ color:var(--red) }
@@ -107,20 +94,24 @@
   @media (max-width: 900px){
     .board{ gap:16px; padding:16px }
     .xrow{ column-gap:12px }
-    .pair{ column-gap:10px }
+    .pair{ column-gap:8px }
   }
-  @media (max-width: 700px){
-    .board{ gap:12px; padding:12px }
-    .xfer-header .title{ margin-bottom:.1rem }
-    .mid-cell, .right-cell{ gap:.9rem }   /* more vertical breathing room between pairs */
+  @media (max-width: 700px){ /* portrait phones */
+    .board{
+      grid-template-rows: 0.82fr 1.18fr;      /* give BL more vertical room */
+      gap:12px; padding:12px;
+    }
+    .mid-cell,.right-cell{ gap:1rem }         /* clearer separation between pairs */
   }
 
-  /* Landscape phones: reduce type a bit more to avoid overflow, no iframe scaling */
+  /* Landscape phones: shrink more; compact gaps */
   @media (max-height: 480px) and (orientation: landscape){
-    .time{ font-size:clamp(26px,5.2vw,60px) }
-    .time-xs{ font-size:clamp(13px,1.7vw,22px) }
-    .title{ font-size:clamp(11px,1.4vw,16px) }
-    .sub{ font-size:clamp(10px,1.3vw,14px) }
+    .time{ font-size:clamp(24px,4.8vw,56px) }
+    .time-xs{ font-size:clamp(12px,1.6vw,20px) }
+    .title{ font-size:clamp(10px,1.3vw,16px) }
+    .sub{ font-size:clamp(10px,1.2vw,14px) }
+    .xrow{ column-gap:10px; padding:4px 0 }
+    .pair{ column-gap:8px }
   }
 </style>
 </head>
@@ -157,7 +148,7 @@ function pairAtoms(depB,depR,arrB,arrR,status){
   return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
 }
 
-/* ---------- TOP LEFT (STE→WIM) ---------- */
+/* ---------- TL (STE→WIM) ---------- */
 function renderTL(s){
   const el=document.getElementById('tl_app');
   if(!s||s.error){el.innerHTML=`<div class="route">STE-WIM</div><div class="time red">Error</div>`;return;}
@@ -174,7 +165,7 @@ function renderTL(s){
 async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
 loadTL(); setInterval(loadTL,60000);
 
-/* ---------- BOTTOM LEFT (SRC→CLJ→IMW) ---------- */
+/* ---------- BL (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
   const el=document.getElementById('bl_app');
   if(!data||data.error){ el.innerHTML=`<div class="time-xs red">No data</div>`; return; }
