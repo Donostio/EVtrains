@@ -60,7 +60,7 @@
     color:var(--muted);
     margin-top:.35rem;
   }
-  .small{ font-size:0.5em; }       /* half-size booked times in brackets */
+  .small{ font-size:0.5em; }       /* half-size booked times in brackets (and small text) */
   .strike{text-decoration:line-through}
   .green{color:var(--green)}
   .amber{color:var(--amber)}
@@ -71,15 +71,15 @@
   /* Bottom-left container centered */
   #bl_app{ width:92%; margin:0 auto; }
 
-  /* Bottom-left headings (white) */
+  /* Bottom-left headings (white, centered) */
   .title {
     color: var(--fg);
     font-weight:800;
     letter-spacing:.06em;
     font-size: clamp(12px, 2.2vw, 18px);
-    margin: 0 0 .4rem 0;
+    margin: 0;
+    text-align:center;
   }
-  .inline-muted{ color:var(--muted); font-weight:600; margin-left:.6em; }
 
   /* Bottom-left compact times */
   .time-xs{
@@ -89,46 +89,52 @@
     white-space:nowrap;
   }
 
-  .spacer{ height: clamp(8px, 2.5vw, 16px); }
+  /* Direct block pinned to top of tile, centered, with healthy gap below */
+  .direct-block{ text-align:center; width: 100%; margin-top: 0; }
+  .direct-line{ margin-top:.25rem; } /* the time line under the title row */
+  .direct-gap{ height: clamp(16px, 3vw, 28px); } /* generous gap before two-leg grid */
 
-  /* Direct block centered */
-  .direct-block{ text-align:center; width: 100%; }
-
-  /* Invisible-table layout (wider right column) */
+  /* Two-leg grid: 3 columns (SRC-CLJ | Transfer | CLJ-IMW) */
   .xfer-wrap{
     width: 100%;
     max-width: 980px;
     display: grid;
     grid-template-columns: 1fr;   /* rows stack */
-    row-gap: 12px;
+    row-gap: 10px;
   }
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 1.25fr; /* widen CLJ-IMW */
-    column-gap: 28px;
+    grid-template-columns: 1fr 1fr 1.15fr; /* slightly wider CLJ-IMW */
+    column-gap: 24px;
+    align-items:end;
   }
-  .xfer-header .title{ margin-bottom:.6rem; }
+  .xfer-header .title{ margin-bottom:.15rem; } /* tighter gap to first data row */
 
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 1.25fr; /* widen CLJ-IMW */
-    column-gap: 28px;
-    align-items: center;           /* vertical centering of left cell */
-    padding: 8px 0;
+    grid-template-columns: 1fr 1fr 1.15fr; /* match header */
+    column-gap: 24px;
+    align-items: center;                   /* center left cell vertically */
+    padding: 6px 0;                        /* subtle row spacing */
   }
+
   .left-cell{
     display:flex;
     flex-direction:column;
-    justify-content:center;
+    align-items:center;   /* <-- center the SRC-CLJ content inside its column */
+    text-align:center;
   }
 
-  /* Connection pairs: transfer + times on ONE line; spacing BETWEEN pairs */
-  .conn{ margin: 0 0 .7rem 0; }          /* space between pairs */
-  .conn-line{
+  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.7rem; } /* space BETWEEN pairs */
+
+  /* Each connection pair is a single line: transfer + times */
+  .pair-line{
     display:flex;
     align-items:baseline;
-    gap:.6em;                             /* tiny space between transfer text and time pair */
-    flex-wrap:wrap;                       /* allow wrap on small screens */
+    justify-content:center;   /* center within column */
+    gap:.6em;                 /* small space between transfer and time pair */
+    flex-wrap:wrap;
+    text-align:center;
   }
 </style>
 </head>
@@ -233,42 +239,40 @@ function renderBL(data){
   if(!data || data.error){ el.innerHTML = `<div class="time-xs red">No data</div>`; return; }
 
   const toM = t => t ? (parseInt(t.slice(0,2))*60 + parseInt(t.slice(2))) : null;
-
   const blocks = [];
 
-  /* Direct block (title + platforms on SAME line; then time) */
-  const platLine = data.direct ? ` <span class="inline-muted">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>` : "";
-  blocks.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platLine}</div>`);
+  /* DIRECT: pinned at top, title + platforms (platforms half-size), time beneath, then gap */
+  const platInline = data.direct ? ` <span class="muted small">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>` : "";
+  blocks.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platInline}</div>`);
   if (data.direct){
     const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
     if(st === 'cancelled'){
-      blocks.push(`<div class="time-xs red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
+      blocks.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
     }else{
       const pair = pairAtoms(
         data.direct.srcDep, data.direct.srcDepReal,
         data.direct.imwArr, data.direct.imwArrReal, st
       );
-      blocks.push(`<div class="time-xs">${pair}</div>`);
+      blocks.push(`<div class="time-xs direct-line">${pair}</div>`);
     }
   } else {
     blocks.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
-  blocks.push(`</div>`); /* end direct-block */
+  blocks.push(`</div>`);
+  blocks.push(`<div class="direct-gap"></div>`);
 
-  /* Spacer */
-  blocks.push(`<div class="spacer"></div>`);
-
-  /* Invisible-table: header + rows (wider right column) */
-  const rows = [];
-  rows.push(`
-    <div class="xfer-header">
-      <div class="title">SRC-CLJ</div>
-      <div class="title">CLJ-IMW</div>
-    </div>
+  /* HEADERS: 3 columns */
+  blocks.push(`
+    <div class="xfer-wrap">
+      <div class="xfer-header">
+        <div class="title">SRC-CLJ</div>
+        <div class="title">Transfer</div>
+        <div class="title">CLJ-IMW</div>
+      </div>
   `);
 
+  /* ROWS */
   for(const leg of (data.legs||[])){
-    // leg status for SRC-CLJ
     let legStatus = 'on_time';
     const srcLate = leg.srcDepReal && toM(leg.srcDepReal) > toM(leg.srcDep);
     const arrLate = leg.cljArrReal && toM(leg.cljArrReal) > toM(leg.cljArr);
@@ -276,21 +280,14 @@ function renderBL(data){
 
     const leftPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
 
-    const leftCell = `
-      <div class="left-cell">
-        <div class="time-xs">${leftPair}</div>
-        <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
-      </div>
-    `;
-
-    // Right cell: connection PAIRS (transfer + times on one line), spacing between pairs
-    const connHTML = (leg.connections||[]).slice(0,2).map(c=>{
+    // Build connection “pairs” as parallel columns (transfer | times)
+    const pairs = (leg.connections||[]).slice(0,2).map(c=>{
       const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
       const pair = (st==='cancelled')
         ? `${timeAtom(c.cljDep || '', null, 'cancelled')} CANCELLED`
         : pairAtoms(c.cljDep, c.cljDepReal, c.imwArr, c.imwArrReal, st);
 
-      // transfer mins (realtime preferred)
+      // transfer minutes (realtime preferred)
       const mArr  = toM(leg.cljArrReal || leg.cljArr);
       const mDep  = toM(c.cljDepReal || c.cljDep);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
@@ -301,26 +298,29 @@ function renderBL(data){
         ? `<span class="red">${minsText} transfer – plat ${c.cljPlat||"?"}!</span>`
         : `<span class="muted">${minsText} transfer – plat ${c.cljPlat||"?"}</span>`;
 
-      return `
-        <div class="conn">
-          <div class="conn-line">
-            <div class="sub">${transferText}</div>
-            <div class="time-xs">${pair}</div>
-          </div>
-        </div>
-      `;
-    }).join("");
+      return { transferText, pair };
+    });
 
-    rows.push(`
+    const midCol = pairs.map(p=>`<div class="pair-line"><span class="sub">${p.transferText}</span></div>`).join("");
+    const rightCol = pairs.map(p=>`<div class="pair-line"><span class="time-xs">${p.pair}</span></div>`).join("");
+
+    blocks.push(`
       <div class="xrow">
-        ${leftCell}
-        <div class="right-cell">${connHTML || `<div class="sub muted">No connections</div>`}</div>
+        <div class="left-cell">
+          <div class="time-xs">${leftPair}</div>
+          <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
+        </div>
+        <div class="mid-cell">
+          ${midCol || `<div class="sub muted">—</div>`}
+        </div>
+        <div class="right-cell">
+          ${rightCol || `<div class="sub muted">—</div>`}
+        </div>
       </div>
     `);
   }
 
-  blocks.push(`<div class="xfer-wrap">${rows.join("")}</div>`);
-
+  blocks.push(`</div>`); /* end xfer-wrap */
   el.innerHTML = blocks.join("");
 }
 async function loadBL(){
@@ -336,3 +336,4 @@ setInterval(loadBL, 60000);
 </script>
 </body>
 </html>
+
