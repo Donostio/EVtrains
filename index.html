@@ -19,7 +19,7 @@
     margin:0 auto;
     display:grid;
     grid-template-columns:1fr 1fr;
-    grid-template-rows:1fr 1fr;      /* portrait override below gives BL more room */
+    grid-template-rows:1fr 1fr;
     gap:24px;
     padding:24px;
     box-sizing:border-box;
@@ -28,11 +28,11 @@
   .inner{ width:100%; height:100%; display:grid; place-items:center }
   iframe{ width:100%; height:100%; border:none; background:#000 }
 
-  /* ---------- TL (STE→WIM) ---------- */
+  /* ---------- TL (STE→WIM) — tighter stack ---------- */
   #tl_app{text-align:center}
-  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.5rem;font-size:clamp(14px,2.2vw,22px)}
-  .time{font-weight:800;line-height:1.1;white-space:nowrap;font-size:clamp(32px,6vw,72px)}
-  .sub{font-size:clamp(12px,1.6vw,16px);color:var(--muted);margin-top:.3rem}
+  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.12rem;font-size:clamp(14px,2.1vw,22px)}
+  .time{font-weight:800;line-height:1.00;white-space:nowrap;font-size:clamp(32px,5.8vw,72px)}
+  .sub{font-size:clamp(12px,1.6vw,16px);color:var(--muted);margin-top:.12rem}
   .small{font-size:.5em}
   .strike{text-decoration:line-through}
   .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
@@ -42,69 +42,59 @@
 
   .title{ color:var(--fg); font-weight:800; letter-spacing:.06em; text-align:center;
           font-size:clamp(12px,1.6vw,18px); margin:0 }
-  .time-xs{ font-weight:800; line-height:1.1; white-space:nowrap; font-size:clamp(14px,1.9vw,24px) }
+  .time-xs{ font-weight:800; line-height:1.05; white-space:nowrap; font-size:clamp(14px,1.9vw,24px) }
 
-  /* Direct block (tighter gaps) */
+  /* Direct block — match TL: title → time → platforms */
   .direct-block{ text-align:center; width:100% }
-  .direct-line{ margin-top:.12rem }           /* ↓ tighter title → time gap */
-  .direct-gap{  height:clamp(10px,1.2vw,16px) }
+  .direct-line{ margin-top:.06rem }
+  .direct-plats{ margin-top:.10rem }
+  .direct-gap{  height:clamp(8px,1vw,12px) }
 
   /* 3-column “table” */
-  .xfer-wrap{ width:100%; display:grid; grid-template-columns:1fr; row-gap:10px }
+  .xfer-wrap{ width:100%; display:grid; grid-template-columns:1fr; row-gap:6px }
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1fr;     /* Transfer close to times */
-    column-gap:14px;
-    align-items:end;
+    grid-template-columns: 1fr 0.9fr 1fr;
+    column-gap:14px; align-items:end;
   }
-  .xfer-header .title{ margin-bottom:.16rem }
-
+  .xfer-header .title{ margin-bottom:.10rem }
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1fr;     /* match header */
+    grid-template-columns: 1fr 0.9fr 1fr;
     column-gap:14px;
     align-items:center;
-    padding:6px 0;
+    padding:4px 0;
   }
 
-  /* Left column: times then platform (own line) */
+  /* Left column: times then BOTH platforms underneath */
   .left-cell{ display:flex; flex-direction:column; align-items:center; text-align:center }
+  .plat-both{ margin-top:.14rem }
 
   /* Middle & Right columns */
-  .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-end } /* right-align text */
+  .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-end; }
   .right-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-start; text-align:left }
 
-  /* A connection row: transfer | times */
+  /* A connection row: transfer | times (kept together) */
   .pair{
     display:grid;
     grid-template-columns:max-content max-content;
     align-items:baseline;
-    column-gap:10px;                          /* a little closer to times */
+    column-gap:8px;
     white-space:nowrap;
   }
-  .transfer{
-    font-size:clamp(12px,1.7vw,18px);
-    text-align:right;                         /* arrows line up */
-  }
-  .trans-ok{ color:var(--fg) }
-  .trans-warn{ color:var(--red) }
+  .transfer{ font-size:clamp(12px,1.7vw,18px); text-align:right }
+  .trans-ok{ color:var(--fg) } .trans-warn{ color:var(--red) }
   .transfer .arrow{ margin-left:.35em }
 
   /* ---------- Responsive tweaks ---------- */
   @media (max-width: 900px){
     .board{ gap:16px; padding:16px }
     .xrow{ column-gap:12px }
-    .pair{ column-gap:8px }
   }
-  @media (max-width: 700px){ /* portrait phones */
-    .board{
-      grid-template-rows: 0.82fr 1.18fr;      /* give BL more vertical room */
-      gap:12px; padding:12px;
-    }
-    .mid-cell,.right-cell{ gap:1rem }         /* clearer separation between pairs */
+  @media (max-width: 700px){ /* portrait phones; give BL more room */
+    .board{ grid-template-rows: 0.8fr 1.2fr; gap:12px; padding:12px }
+    .mid-cell,.right-cell{ gap:1rem }
   }
-
-  /* Landscape phones: shrink more; compact gaps */
   @media (max-height: 480px) and (orientation: landscape){
     .time{ font-size:clamp(24px,4.8vw,56px) }
     .time-xs{ font-size:clamp(12px,1.6vw,20px) }
@@ -173,15 +163,17 @@ function renderBL(data){
   const toM=t=>t?(+t.slice(0,2))*60+(+t.slice(2)):null;
   const out=[];
 
-  /* Direct */
-  const platInline=data.direct?` <span class="muted small">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>`:"";
-  out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platInline}</div>`);
+  /* Direct: title → time → platforms (centered) */
+  out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)</div>`);
   if(data.direct){
     const st=data.direct.status==='delayed'?'delayed':(data.direct.status==='cancelled'?'cancelled':'on_time');
-    out.push(st==='cancelled'
-      ? `<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`
-      : `<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`
-    );
+    if(st==='cancelled'){
+      out.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`);
+      out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+    }else{
+      out.push(`<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`);
+      out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+    }
   }else{
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
@@ -192,7 +184,7 @@ function renderBL(data){
     <div class="xfer-wrap">
       <div class="xfer-header">
         <div class="title">SRC-CLJ</div>
-        <div class="title">Transfer</div>
+        <div class="title">Trans. IMW</div>
         <div class="title">CLJ-IMW</div>
       </div>
   `);
@@ -215,7 +207,7 @@ function renderBL(data){
       const mArr=toM(leg.cljArrReal||leg.cljArr), mDep=toM(c.cljDepReal||c.cljDep);
       let xfer=(mArr!=null&&mDep!=null)?(mDep-mArr):null; if(xfer!=null&&xfer<0) xfer=null;
       const warn=(xfer!=null&&xfer<4), mins=xfer==null?'?':xfer;
-      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${mins}&nbsp;min · plat&nbsp;${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
+      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">plat&nbsp;${c.cljPlat||"?"}&nbsp;in&nbsp;${mins}min<span class="arrow"> →</span>${warn?'':''}</span>`;
       return {transfer,pair};
     });
 
@@ -226,7 +218,7 @@ function renderBL(data){
       <div class="xrow">
         <div class="left-cell">
           <div class="time-xs">${leftPair}</div>
-          <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
+          <div class="sub plat-both">Plat ${leg.srcPlat || "?"} · Plat ${leg.cljPlatArr || "?"}</div>
         </div>
         <div class="mid-cell">${midCol || `<div class="transfer trans-ok">—</div>`}</div>
         <div class="right-cell">${rightCol || `<div class="time-xs muted">—</div>`}</div>
@@ -237,8 +229,10 @@ function renderBL(data){
   out.push(`</div>`);
   el.innerHTML=out.join("");
 }
+async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
 async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
-loadBL(); setInterval(loadBL,60000);
+loadTL(); loadBL();
+setInterval(loadTL,60000); setInterval(loadBL,60000);
 </script>
 </body>
 </html>
