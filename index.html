@@ -42,7 +42,7 @@
     background:#000;
   }
 
-  /* Main typography */
+  /* Top-left main typography */
   .route{
     font-weight:800;
     letter-spacing:.06em;
@@ -53,6 +53,7 @@
     font-weight:800;
     line-height:1.1;
     font-size:clamp(28px,9vw,64px);
+    white-space:nowrap;
   }
   .sub{
     font-size:clamp(12px,2.5vw,16px);
@@ -65,43 +66,58 @@
   .amber{color:var(--amber)}
   .red{color:var(--red)}
   .muted{color:var(--muted)}
+  #tl_app{ text-align:center; }    /* center top-left tile */
 
-  /* TL centering */
-  #tl_app{ text-align:center; }
-
-  /* BL smaller variants */
-  .route-sm{
+  /* Bottom-left: consistent title style (white) */
+  .title {
+    color: var(--fg);
     font-weight:800;
     letter-spacing:.06em;
-    margin-bottom:.35rem;
-    font-size: clamp(10px, 1.8vw, 16px);
+    font-size: clamp(12px, 2.2vw, 18px);
+    margin: 0 0 .4rem 0;
   }
-  .time-sm{
+
+  /* Bottom-left compact times */
+  .time-xs{
     font-weight:800;
     line-height:1.1;
-    font-size: clamp(17px, 5.4vw, 38px);
+    font-size: clamp(14px, 3.2vw, 24px); /* ~half the big time */
+    white-space:nowrap;
   }
+
   .spacer{ height: clamp(8px, 2.5vw, 16px); }
 
-  /* New: "invisible table" grid for legs */
-  .xfer{
-    width: 90%;
-    max-width: 780px;
+  /* Invisible-table layout */
+  .xfer-wrap{
+    width: 92%;
+    max-width: 880px;
     display: grid;
+    grid-template-columns: 1fr;   /* rows stack */
+    row-gap: 12px;
+  }
+  .xfer-header{
+    display:grid;
     grid-template-columns: 1fr 1fr;
-    column-gap: 24px;
-    row-gap: 14px;
-    align-items: start;
+    column-gap: 28px;
   }
-  .hdr{
-    color: var(--muted);
-    font-weight: 700;
-    letter-spacing: .04em;
-    font-size: clamp(11px, 2vw, 14px);
+  .xfer-header .title{ margin-bottom:.6rem; }
+
+  .xrow{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 28px;
+    align-items: center;           /* <-- vertical centering of left cell */
+    padding: 8px 0;                /* row spacing (no borders) */
   }
-  .cell{ }
-  .line{ margin: .15rem 0; }
-  .indent { padding-left: 1.25em; }
+  .left-cell{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+  .right-cell .conn{
+    margin: .15rem 0 .5rem 0;
+  }
+  .right-cell .conn:last-child{ margin-bottom:0; }
 </style>
 </head>
 <body>
@@ -139,7 +155,7 @@
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
 const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 
-/* Build one time atom per your rules */
+/* One time atom per rules */
 function timeAtom(booked, real, status){
   if(status === 'cancelled'){
     return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
@@ -149,8 +165,7 @@ function timeAtom(booked, real, status){
   }
   return `<span class="green">${fmt(booked)}</span>`;
 }
-
-/* Build a dep-arr pair with a dash matching the active color */
+/* Dep-arr pair with dash in active colour */
 function pairAtoms(depBooked, depReal, arrBooked, arrReal, status){
   const color = colorFor(status);
   const left  = timeAtom(depBooked, depReal, status);
@@ -203,66 +218,67 @@ setInterval(loadTL, 60000);
 /* ---------- BOTTOM LEFT (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
   const el = document.getElementById('bl_app');
-  if(!data || data.error){ el.innerHTML = `<div class="time-sm red">No data</div>`; return; }
+  if(!data || data.error){ el.innerHTML = `<div class="time-xs red">No data</div>`; return; }
 
   const toM = t => t ? (parseInt(t.slice(0,2))*60 + parseInt(t.slice(2))) : null;
 
   const blocks = [];
 
-  // Direct block (title + one line, as before)
-  blocks.push(`<div class="route-sm">SRC-IMW (direct)</div>`);
+  /* Direct block (title + compact time + platforms) */
+  blocks.push(`<div class="title">SRC-IMW (direct)</div>`);
   if (data.direct){
     const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
     if(st === 'cancelled'){
-      blocks.push(`<div class="time-sm red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
+      blocks.push(`<div class="time-xs red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
     }else{
       const pair = pairAtoms(
         data.direct.srcDep, data.direct.srcDepReal,
         data.direct.imwArr, data.direct.imwArrReal, st
       );
-      blocks.push(`<div class="time-sm">${pair}</div>`);
+      blocks.push(`<div class="time-xs">${pair}</div>`);
       blocks.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
     }
   } else {
     blocks.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
 
-  // Spacer
+  /* Spacer */
   blocks.push(`<div class="spacer"></div>`);
 
-  // Build the invisible table for remaining legs
+  /* Invisible-table: header + rows */
   const rows = [];
-  // Header row
   rows.push(`
-    <div class="hdr">SRC-CLJ</div>
-    <div class="hdr">CLJ-IMW</div>
+    <div class="xfer-header">
+      <div class="title">SRC-CLJ</div>
+      <div class="title">CLJ-IMW</div>
+    </div>
   `);
 
   for(const leg of (data.legs||[])){
-    // Determine header status (delayed if either leg late)
+    // header status (on-time/delayed) for SRC-CLJ
     let legStatus = 'on_time';
-    if ((leg.srcDepReal && leg.srcDepReal !== leg.srcDep && toM(leg.srcDepReal) > toM(leg.srcDep)) ||
-        (leg.cljArrReal && leg.cljArrReal !== leg.cljArr && toM(leg.cljArrReal) > toM(leg.cljArr))) {
-      legStatus = 'delayed';
-    }
+    const srcLate = leg.srcDepReal && toM(leg.srcDepReal) > toM(leg.srcDep);
+    const arrLate = leg.cljArrReal && toM(leg.cljArrReal) > toM(leg.cljArr);
+    if (srcLate || arrLate) legStatus = 'delayed';
+
     const leftPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
+
     const leftCell = `
-      <div class="cell">
-        <div class="line time-sm">${leftPair}</div>
-        <div class="line sub">plat ${leg.cljPlatArr || "?"}</div>
+      <div class="left-cell">
+        <div class="time-xs">${leftPair}</div>
+        <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
       </div>
     `;
 
-    // Right cell: list connections, each two lines
-    const connLines = (leg.connections||[]).slice(0,2).map(c=>{
+    // Right cell: connection blocks
+    const connHTML = (leg.connections||[]).slice(0,2).map(c=>{
       const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
       const pair = (st==='cancelled')
         ? `${timeAtom(c.cljDep || '', null, 'cancelled')} CANCELLED`
         : pairAtoms(c.cljDep, c.cljDepReal, c.imwArr, c.imwArrReal, st);
 
-      // transfer minutes (realtime where available)
-      const cljArrRef = leg.cljArrReal || leg.cljArr;
-      const mArr  = toM(cljArrRef);
+      // transfer mins (realtime preferred)
+      const mArr  = toM(leg.cljArrReal || leg.cljArr);
       const mDep  = toM(c.cljDepReal || c.cljDep);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
       if (xfer!=null && xfer<0) xfer = null;
@@ -273,17 +289,22 @@ function renderBL(data){
         : `<span class="muted">${minsText} transfer – plat ${c.cljPlat||"?"}</span>`;
 
       return `
-        <div class="line">${transferLine}</div>
-        <div class="line indent time-sm">${pair}</div>
+        <div class="conn">
+          <div class="sub">${transferLine}</div>
+          <div class="time-xs">${pair}</div>
+        </div>
       `;
     }).join("");
 
-    const rightCell = `<div class="cell">${connLines || `<div class="sub muted">No connections</div>`}</div>`;
-
-    rows.push(leftCell + rightCell);
+    rows.push(`
+      <div class="xrow">
+        ${leftCell}
+        <div class="right-cell">${connHTML || `<div class="sub muted">No connections</div>`}</div>
+      </div>
+    `);
   }
 
-  blocks.push(`<div class="xfer">${rows.join("")}</div>`);
+  blocks.push(`<div class="xfer-wrap">${rows.join("")}</div>`);
 
   el.innerHTML = blocks.join("");
 }
