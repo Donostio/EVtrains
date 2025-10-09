@@ -3,13 +3,7 @@
  * status.json for STE -> WIM 07:44
  * Rolls to TOMORROW after 09:00 Europe/London (CUTOVER_LOCAL_TIME).
  *
- * Env:
- *  - RTT_USERNAME, RTT_PASSWORD (required)
- *  - ORIGIN_CRS (default "STE")
- *  - DEST_CRS   (default "WIM")
- *  - BOOKED_DEPART_HHMM (default "0744")
- *  - LONDON_TZ (default "Europe/London")
- *  - CUTOVER_LOCAL_TIME (default "09:00")
+ * Prefers RTT detail by RID (no date); falls back to UID + date with ±1 day retry.
  */
 
 const https = require('https');
@@ -94,17 +88,22 @@ function pickStatus(o,d){
     fs.writeFileSync('status.json', JSON.stringify(err,null,2)); console.warn(err); process.exit(0);
   }
 
-  // 2) DETAIL: prefer service.runDate; fallback to iso; retry ±1 day on 404
+  const rid = svc.rid || null;
   const svcRunISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
 
-  async function getDetailWithFallback(uid, primaryISO){
+  async function getDetailByRidOrUid(){
+    if (rid){
+      try { return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${rid}`); }
+      catch(e){ /* fall back to UID/date */ }
+    }
+    // UID + date fallback with ±1 day retry
     const mk = (u,d)=>`https://api.rtt.io/api/v1/json/service/${u}/${d}`;
-    try{ return await fetchJSON(mk(uid, primaryISO)); }
+    try{ return await fetchJSON(mk(svc.serviceUid, svcRunISO)); }
     catch(e){
       const msg = String(e);
       if (!msg.includes('HTTP 404')) throw e;
       for (const delta of [+1,-1]){
-        try{ return await fetchJSON(mk(uid, isoShiftDays(primaryISO, delta))); }
+        try{ return await fetchJSON(mk(svc.serviceUid, isoShiftDays(svcRunISO, delta))); }
         catch(_e){}
       }
       throw e;
@@ -112,9 +111,9 @@ function pickStatus(o,d){
   }
 
   let detail;
-  try { detail = await getDetailWithFallback(svc.serviceUid, svcRunISO); }
+  try { detail = await getDetailByRidOrUid(); }
   catch(e){
-    const err = { error:String(e), when:new Date().toISOString(), triedDate: svcRunISO };
+    const err = { error:String(e), when:new Date().toISOString(), triedDate: svcRunISO, rid: rid||null };
     fs.writeFileSync('status.json', JSON.stringify(err,null,2)); console.error(err); process.exit(0);
   }
 
@@ -127,6 +126,7 @@ function pickStatus(o,d){
     generatedAt: new Date().toISOString(),
     date: svcRunISO,
     serviceUid: svc.serviceUid,
+    rid: rid || null,
     runDate: svcRunISO,
     originCRS: ORIGIN,
     destinationCRS: DEST,
@@ -152,10 +152,9 @@ function pickStatus(o,d){
       isCancelled: !!dest.isCancelled
     },
     status: pickStatus(o,dest),
-    searchUrl,
-    detailPrimaryDate: svcRunISO
+    searchUrl
   };
 
   fs.writeFileSync('status.json', JSON.stringify(out,null,2));
-  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, 'runDate', svcRunISO);
+  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, 'rid', rid || '(uid+date)');
 })();
