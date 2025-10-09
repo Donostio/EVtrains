@@ -3,107 +3,111 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>STE → WIM · 07:44</title>
+<title>Morning Board</title>
 <style>
-  :root{
-    --bg:#000;
-    --white:#eaeaea;
-    --green:#58d27a;   /* on time */
-    --amber:#ffa000;   /* delayed */
-    --red:#ff3b30;     /* cancelled */
-    --mute:#9aa0a6;    /* brackets */
-  }
+  :root { --bg:#000; --fg:#eaeaea; --muted:#9aa0a6; --green:#58d27a; --amber:#ffa000; --red:#ff3b30; }
   html,body{height:100%}
-  body{
-    margin:0; background:var(--bg); color:var(--white);
-    display:grid; place-items:center; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  }
-  .wrap{ text-align:center; }
-  .route{
-    font-weight:800; letter-spacing:.06em; margin-bottom:.6rem;
-  }
-  .time{
-    font-weight:800; line-height:1.1;
-  }
-  /* responsive sizing */
-  .route{ font-size: clamp(14px, 4vw, 28px); }
-  .time { font-size: clamp(28px, 9vw, 64px); }
-  .sub { font-size: clamp(12px, 3.5vw, 18px); opacity:.9; margin-top:.4rem }
-  .strike{ text-decoration: line-through; }
-  .green{ color:var(--green) }
-  .amber{ color:var(--amber) }
-  .red{ color:var(--red) }
-  .mute{ color:var(--mute) }
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:16px;padding:16px;height:100%}
+  .tile{border:1px solid #1b1b1b;border-radius:12px;overflow:hidden;position:relative;background:#0b0b0b}
+  .hd{position:absolute;top:8px;left:12px;color:var(--muted);font-weight:700;letter-spacing:.04em;font-size:12px}
+  .center{display:grid;place-items:center;height:100%;text-align:center}
+  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vw,24px)}
+  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vw,64px)}
+  .sub{font-size:clamp(12px,2.5vw,16px);color:var(--muted);margin-top:.35rem}
+  .strike{text-decoration:line-through}
+  .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
+  iframe{width:100%;height:100%;border:0;background:#000}
 </style>
 </head>
 <body>
-<div class="wrap" id="app">Loading…</div>
+  <div class="grid">
+    <!-- TOP LEFT: 07:44 STE→WIM (minimal) -->
+    <section class="tile">
+      <div class="hd">STE → WIM</div>
+      <div id="tl_app" class="center">Loading…</div>
+    </section>
+
+    <!-- TOP RIGHT: District Line status (iframe) -->
+    <section class="tile">
+      <div class="hd">District Line</div>
+      <iframe
+        src="https://donostio.github.io/DLstatus/?embed=1&theme=dark"
+        loading="lazy"
+        referrerpolicy="no-referrer">
+      </iframe>
+    </section>
+
+    <!-- BOTTOM LEFT: SRC→CLJ→IMW fast transfer (platform-aware) -->
+    <section class="tile">
+      <div class="hd">SRC → CLJ → IMW</div>
+      <div id="bl_app" class="center">Loading…</div>
+    </section>
+
+    <!-- BOTTOM RIGHT: Weather (iframe) -->
+    <section class="tile">
+      <div class="hd">Weather</div>
+      <iframe
+        src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark"
+        loading="lazy"
+        referrerpolicy="no-referrer">
+      </iframe>
+    </section>
+  </div>
 
 <script>
+// ========= TOP-LEFT minimalist board (uses status.json you already generate) =========
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
-const mins = t => t ? (+t.slice(0,2))*60 + (+t.slice(2)) : null;
-
-function render(data){
-  const el = document.getElementById('app');
-  if(data.error){ el.innerHTML = `<div class="route red">STE-WIM</div><div class="time red">Error</div>`; return; }
-
-  const o = data.origin || {};
-  const d = data.destination || {};
-  const bookedDep = o.bookedDeparture || data.gbttBookedDeparture || null;
-  const realDep   = o.realtimeDeparture || null;
-  const bookedArr = d.bookedArrival || null;
-  const realArr   = d.realtimeArrival || null;
-
-  // Decide status
-  let status = (data.status || "on_time");
-  if (o?.isCancelled || d?.isCancelled) status = "cancelled";
-
-  const headerClass =
-    status === "cancelled" ? "red" :
-    status === "delayed"   ? "amber" :
-    status === "early"     ? "green" : ""; // route stays white when on time
-
-  let bodyHTML = "";
-
-  if(status === "cancelled"){
-    bodyHTML = `<div class="time red"><span class="strike">${fmt(bookedDep)}</span> CANCELLED</div>`;
-  } else if(status === "delayed" || status === "early"){
-    const dep = realDep ? `<span class="amber">${fmt(realDep)}</span> <span class="mute">(${fmt(bookedDep)})</span>`
-                        : `<span class="amber">${fmt(bookedDep)}</span>`;
-    const arr = realArr ? `<span class="amber">${fmt(realArr)}</span> <span class="mute">(${fmt(bookedArr)})</span>`
-                        : (bookedArr ? `<span class="amber">${fmt(bookedArr)}</span>` : "");
-    bodyHTML = `<div class="time">${dep}${arr ? " <span class='mute'>-</span> "+arr : ""}</div>`;
-  } else {
-    // on time (or unknown -> treat as on time visual)
-    const show = realDep || bookedDep;
-    bodyHTML = `<div class="time green">${fmt(show)}</div>`;
+function renderTL(s){
+  const el = document.getElementById('tl_app');
+  if(s?.error){ el.innerHTML = `<div class="route red">STE-WIM</div><div class="time red">Error</div>`; return; }
+  const o=s.origin||{}, d=s.destination||{};
+  let status=s.status||"on_time"; if(o.isCancelled||d.isCancelled) status="cancelled";
+  let body="";
+  if(status==="cancelled"){
+    body=`<div class="route red">STE-WIM</div><div class="time red"><span class="strike">${fmt(o.bookedDeparture||s.gbttBookedDeparture)}</span> CANCELLED</div>`;
+  }else if(status==="delayed"||status==="early"){
+    const depReal=o.realtimeDeparture, depBook=o.bookedDeparture||s.gbttBookedDeparture;
+    const arrReal=d.realtimeArrival,   arrBook=d.bookedArrival;
+    body = `<div class="route amber">STE-WIM</div>
+            <div class="time">${depReal?`<span class="amber">${fmt(depReal)}</span> <span class="muted">(${fmt(depBook)})</span>`:`<span class="amber">${fmt(depBook)}</span>`}
+            ${arrReal||arrBook?` <span class="muted">-</span> ${arrReal?`<span class="amber">${fmt(arrReal)}</span> <span class="muted">(${fmt(arrBook)})</span>`:`<span class="amber">${fmt(arrBook)}</span>`}`:""}</div>
+            ${(o.platform||d.platform)?`<div class="sub">Plat ${o.platform||"?"} → Plat ${d.platform||"?"}</div>`:""}`;
+  }else{
+    const show=o.realtimeDeparture||o.bookedDeparture||s.gbttBookedDeparture;
+    body=`<div class="route">STE-WIM</div><div class="time green">${fmt(show)}</div>`;
   }
+  el.innerHTML=body;
+}
+async function loadTL(){
+  try{ const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'}); renderTL(await r.json()); }
+  catch{ renderTL({error:true}); }
+}
+loadTL(); setInterval(loadTL, 60000);
 
-  // Optional tiny subline with platforms if you want (comment out if too busy)
-  const sub = (o.platform || d.platform)
-    ? `<div class="sub mute">${o.platform ? "Plat "+o.platform : ""}${o.platform&&d.platform ? " · " : ""}${d.platform ? "Plat "+d.platform : ""}</div>`
-    : "";
-
+// ========= BOTTOM-LEFT fast transfer (reads xfer.json we’ll generate) =========
+function renderBL(x){
+  const el = document.getElementById('bl_app');
+  if(!x || x.error){ el.innerHTML = `<div class="route red">SRC-CLJ-IMW</div><div class="time red">No data</div>`; return; }
+  const best = x.options?.[0];
+  if(!best){ el.innerHTML = `<div class="route">SRC-CLJ-IMW</div><div class="time">—</div>`; return; }
+  const color = best.status==='cancelled'?'red':best.status==='delayed'?'amber':'green';
   el.innerHTML = `
-    <div class="route ${headerClass}">STE-WIM</div>
-    ${bodyHTML}
-    ${sub}
+    <div class="route">SRC-CLJ (Plat ${best.srcPlat||"?"}) → CLJ-IMW (Plat ${best.cljPlat||"?"})</div>
+    <div class="time ${color}">
+      ${best.srcDepReal?fmt(best.srcDepReal):fmt(best.srcDep)} <span class="muted">(${fmt(best.srcDep)})</span>
+      <span class="muted">-</span>
+      ${best.imwArrReal?fmt(best.imwArrReal):fmt(best.imwArr)} ${best.imwArr?`<span class="muted">(${fmt(best.imwArr)})</span>`:""}
+    </div>
+    <div class="sub">CLJ: arrive ${fmt(best.cljArrReal||best.cljArr)}, depart ${fmt(best.cljDepReal||best.cljDep)} · min xfer ${best.minTransfer}m</div>
+    ${(x.options||[]).slice(1,3).map(o=>`<div class="sub">• ${fmt(o.srcDep)}→${fmt(o.imwArr)} (plat ${o.srcPlat||"?"}/${o.cljPlat||"?"})</div>`).join("")}
   `;
 }
-
-async function load(){
-  try{
-    const res = await fetch('./status.json?ts='+Date.now(), { cache: 'no-store' });
-    if(!res.ok) throw new Error('status.json not found');
-    const data = await res.json();
-    render(data);
-  }catch(e){
-    render({ error:String(e) });
-  }
+async function loadBL(){
+  try{ const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'}); renderBL(await r.json()); }
+  catch{ renderBL({error:true}); }
 }
-
-load();
-setInterval(load, 60000); // refresh every 60s
+loadBL(); setInterval(loadBL, 60000);
 </script>
 </body>
 </html>
