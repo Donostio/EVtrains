@@ -68,7 +68,10 @@
   .muted{color:var(--muted)}
   #tl_app{ text-align:center; }    /* center top-left tile */
 
-  /* Bottom-left: consistent title style (white) */
+  /* Bottom-left container centered */
+  #bl_app{ width:92%; margin:0 auto; }
+
+  /* Bottom-left headings (white) */
   .title {
     color: var(--fg);
     font-weight:800;
@@ -76,48 +79,57 @@
     font-size: clamp(12px, 2.2vw, 18px);
     margin: 0 0 .4rem 0;
   }
+  .inline-muted{ color:var(--muted); font-weight:600; margin-left:.6em; }
 
   /* Bottom-left compact times */
   .time-xs{
     font-weight:800;
     line-height:1.1;
-    font-size: clamp(14px, 3.2vw, 24px); /* ~half the big time */
+    font-size: clamp(14px, 3.2vw, 24px);
     white-space:nowrap;
   }
 
   .spacer{ height: clamp(8px, 2.5vw, 16px); }
 
-  /* Invisible-table layout */
+  /* Direct block centered */
+  .direct-block{ text-align:center; width: 100%; }
+
+  /* Invisible-table layout (wider right column) */
   .xfer-wrap{
-    width: 92%;
-    max-width: 880px;
+    width: 100%;
+    max-width: 980px;
     display: grid;
     grid-template-columns: 1fr;   /* rows stack */
     row-gap: 12px;
   }
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1.25fr; /* widen CLJ-IMW */
     column-gap: 28px;
   }
   .xfer-header .title{ margin-bottom:.6rem; }
 
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1.25fr; /* widen CLJ-IMW */
     column-gap: 28px;
-    align-items: center;           /* <-- vertical centering of left cell */
-    padding: 8px 0;                /* row spacing (no borders) */
+    align-items: center;           /* vertical centering of left cell */
+    padding: 8px 0;
   }
   .left-cell{
     display:flex;
     flex-direction:column;
     justify-content:center;
   }
-  .right-cell .conn{
-    margin: .15rem 0 .5rem 0;
+
+  /* Connection pairs: transfer + times on ONE line; spacing BETWEEN pairs */
+  .conn{ margin: 0 0 .7rem 0; }          /* space between pairs */
+  .conn-line{
+    display:flex;
+    align-items:baseline;
+    gap:.6em;                             /* tiny space between transfer text and time pair */
+    flex-wrap:wrap;                       /* allow wrap on small screens */
   }
-  .right-cell .conn:last-child{ margin-bottom:0; }
 </style>
 </head>
 <body>
@@ -224,8 +236,9 @@ function renderBL(data){
 
   const blocks = [];
 
-  /* Direct block (title + compact time + platforms) */
-  blocks.push(`<div class="title">SRC-IMW (direct)</div>`);
+  /* Direct block (title + platforms on SAME line; then time) */
+  const platLine = data.direct ? ` <span class="inline-muted">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>` : "";
+  blocks.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platLine}</div>`);
   if (data.direct){
     const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
     if(st === 'cancelled'){
@@ -236,16 +249,16 @@ function renderBL(data){
         data.direct.imwArr, data.direct.imwArrReal, st
       );
       blocks.push(`<div class="time-xs">${pair}</div>`);
-      blocks.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
     }
   } else {
     blocks.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
+  blocks.push(`</div>`); /* end direct-block */
 
   /* Spacer */
   blocks.push(`<div class="spacer"></div>`);
 
-  /* Invisible-table: header + rows */
+  /* Invisible-table: header + rows (wider right column) */
   const rows = [];
   rows.push(`
     <div class="xfer-header">
@@ -255,7 +268,7 @@ function renderBL(data){
   `);
 
   for(const leg of (data.legs||[])){
-    // header status (on-time/delayed) for SRC-CLJ
+    // leg status for SRC-CLJ
     let legStatus = 'on_time';
     const srcLate = leg.srcDepReal && toM(leg.srcDepReal) > toM(leg.srcDep);
     const arrLate = leg.cljArrReal && toM(leg.cljArrReal) > toM(leg.cljArr);
@@ -270,7 +283,7 @@ function renderBL(data){
       </div>
     `;
 
-    // Right cell: connection blocks
+    // Right cell: connection PAIRS (transfer + times on one line), spacing between pairs
     const connHTML = (leg.connections||[]).slice(0,2).map(c=>{
       const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
       const pair = (st==='cancelled')
@@ -284,14 +297,16 @@ function renderBL(data){
       if (xfer!=null && xfer<0) xfer = null;
       const warn = (xfer!=null && xfer < 4);
       const minsText = xfer==null ? "?mins" : `${xfer}mins`;
-      const transferLine = warn
+      const transferText = warn
         ? `<span class="red">${minsText} transfer – plat ${c.cljPlat||"?"}!</span>`
         : `<span class="muted">${minsText} transfer – plat ${c.cljPlat||"?"}</span>`;
 
       return `
         <div class="conn">
-          <div class="sub">${transferLine}</div>
-          <div class="time-xs">${pair}</div>
+          <div class="conn-line">
+            <div class="sub">${transferText}</div>
+            <div class="time-xs">${pair}</div>
+          </div>
         </div>
       `;
     }).join("");
