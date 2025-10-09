@@ -10,7 +10,7 @@
     --fg:#eaeaea;
     --muted:#9aa0a6;
     --green:#58d27a;
-    --amber:#ffa000;
+    --amber:#ffa000;  /* orange for delays */
     --red:#ff3b30;
   }
   html,body{height:100%}
@@ -59,6 +59,7 @@
     color:var(--muted);
     margin-top:.35rem;
   }
+  .small{ font-size:0.5em; }       /* half-size booked times in brackets */
   .strike{text-decoration:line-through}
   .green{color:var(--green)}
   .amber{color:var(--amber)}
@@ -86,7 +87,7 @@
 </head>
 <body>
   <div class="grid">
-    <!-- TOP LEFT: 07:44 STE→WIM -->
+    <!-- TOP LEFT: STE→WIM -->
     <section class="tile">
       <div id="tl_app">Loading…</div>
     </section>
@@ -117,18 +118,27 @@
 
 <script>
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
+const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 
-/* helpers for your new rules */
-function timeDisplay(booked, real, status){
-  // if delayed and realtime is different → "(booked) realtime"
-  if(status === 'delayed' && real && real !== booked){
-    return `<span class="muted">(${fmt(booked)})</span> ${fmt(real)}`;
+/* Build one time atom per your rules */
+function timeAtom(booked, real, status){
+  if(status === 'cancelled'){
+    // booked time, red, strike, and the word CANCELLED (used where appropriate)
+    return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
   }
-  // else (on_time or early) → booked only
-  return `${fmt(booked)}`;
+  if(status === 'delayed' && real && real !== booked){
+    return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
+  }
+  // on-time or early: booked only, green
+  return `<span class="green">${fmt(booked)}</span>`;
 }
-function pairDisplay(depBooked, depReal, arrBooked, arrReal, status){
-  return `${timeDisplay(depBooked, depReal, status)} <span class="muted">-</span> ${timeDisplay(arrBooked, arrReal, status)}`;
+
+/* Build a dep-arr pair with a dash matching the active color */
+function pairAtoms(depBooked, depReal, arrBooked, arrReal, status){
+  const color = colorFor(status);
+  const left  = timeAtom(depBooked, depReal, status);
+  const right = timeAtom(arrBooked, arrReal, status);
+  return `${left} <span class="${color}">-</span> ${right}`;
 }
 
 /* ---------- TOP LEFT (STE→WIM) ---------- */
@@ -140,22 +150,28 @@ function renderTL(s){
   }
   const o = s.origin || {};
   const d = s.destination || {};
-  // treat 'early' visually like on_time per your instruction
-  let status = s.status === 'delayed' ? 'delayed' : 'on_time';
+
+  // Treat 'early' visually like on_time (no brackets, green)
+  let status = (o.isCancelled || d.isCancelled) ? 'cancelled'
+             : (s.status === 'delayed' ? 'delayed' : 'on_time');
 
   const depBooked = o.bookedDeparture || s.gbttBookedDeparture || null;
   const depReal   = o.realtimeDeparture || null;
   const arrBooked = d.bookedArrival || null;
   const arrReal   = d.realtimeArrival || null;
 
-  const line = pairDisplay(depBooked, depReal, arrBooked, arrReal, status);
-  const colorCls = status === 'delayed' ? 'red' : 'green';
+  let timeHTML;
+  if(status === 'cancelled'){
+    timeHTML = `<div class="time red">${timeAtom(depBooked, null, 'cancelled')} CANCELLED</div>`;
+  }else{
+    timeHTML = `<div class="time">${pairAtoms(depBooked, depReal, arrBooked, arrReal, status)}</div>`;
+  }
 
   const platHTML = (o.platform || d.platform)
     ? `<div class="sub">Plat ${o.platform || "?"} · Plat ${d.platform || "?"}</div>`
     : "";
 
-  el.innerHTML = `<div class="route">STE-WIM</div><div class="time ${colorCls}">${line}</div>${platHTML}`;
+  el.innerHTML = `<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
 }
 async function loadTL(){
   try{
@@ -180,52 +196,48 @@ function renderBL(data){
   // ----- Direct block -----
   out.push(`<div class="route-sm">SRC-IMW (direct)</div>`);
   if (data.direct){
-    // treat 'early' visually like on_time
-    const st = data.direct.status === 'delayed' ? 'delayed' : 'on_time';
-    const color = st === 'delayed' ? 'red' : 'green';
-    const dep = timeDisplay(data.direct.srcDep, data.direct.srcDepReal, st);
-    const arr = timeDisplay(data.direct.imwArr, data.direct.imwArrReal, st);
+    const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
 
-    out.push(`<div class="time-sm ${color}">${dep} <span class="muted">-</span> ${arr}</div>`);
-    out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+    if(st === 'cancelled'){
+      out.push(`<div class="time-sm red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
+    }else{
+      const pair = pairAtoms(
+        data.direct.srcDep, data.direct.srcDepReal,
+        data.direct.imwArr, data.direct.imwArrReal, st
+      );
+      out.push(`<div class="time-sm">${pair}</div>`);
+      out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+    }
   } else {
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
 
-  // Spacer line
+  // Spacer
   out.push(`<div class="spacer"></div>`);
 
   // ----- Legs + connection bullets -----
   for(const leg of (data.legs||[])){
-    const srcDep = leg.srcDep;
-    const srcDepReal = leg.srcDepReal;
-    const cljArr = leg.cljArr;
-    const cljArrReal = leg.cljArrReal;
-
-    // leg status: delayed if either leg appears late; otherwise on_time/early → show booked
-    const legStatus = 'on_time'; // conservative: headers are schedule-focused
-    const headerLine = pairDisplay(srcDep, srcDepReal, cljArr, cljArrReal, legStatus);
+    // Leg header (SRC-CLJ) — apply the same bracket/colour rules
+    const legStatus = 'on_time'; // schedule-focused unless you prefer to derive a "delayed" state for the header
+    const legPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
 
     out.push(`
       <div class="route-sm">
-        SRC - CLJ ${headerLine} <span class="muted">(arr. plat ${leg.cljPlatArr || "?"})</span>
+        SRC - CLJ ${legPair} <span class="muted">(arr. plat ${leg.cljPlatArr || "?"})</span>
       </div>
     `);
 
-    // Up to two connections, indented
+    // Connections (CLJ->IMW), bullets
     (leg.connections||[]).slice(0,2).forEach(c=>{
-      const depCLJBooked = c.cljDep || null;
-      const depCLJReal   = c.cljDepReal || null;
-      const arrIMWBooked = c.imwArr || null;
-      const arrIMWReal   = c.imwArrReal || null;
-
-      const connStatus = c.status === 'delayed' ? 'delayed' : 'on_time';
-      const pair = pairDisplay(depCLJBooked, depCLJReal, arrIMWBooked, arrIMWReal, connStatus);
+      const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
+      const pair = (st==='cancelled')
+        ? `${timeAtom(c.cljDep || '', null, 'cancelled')} CANCELLED`
+        : pairAtoms(c.cljDep, c.cljDepReal, c.imwArr, c.imwArrReal, st);
 
       // transfer mins (use realtime where available)
-      const cljArrRef = (cljArrReal || cljArr);
+      const cljArrRef = leg.cljArrReal || leg.cljArr;
       const mArr  = toM(cljArrRef);
-      const mDep  = toM(depCLJReal || depCLJBooked);
+      const mDep  = toM(c.cljDepReal || c.cljDep);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
       if (xfer!=null && xfer<0) xfer = null;
 
@@ -242,7 +254,6 @@ function renderBL(data){
       `);
     });
 
-    // Spacer between leg groups
     out.push(`<div class="spacer"></div>`);
   }
 
