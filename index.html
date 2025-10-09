@@ -6,188 +6,147 @@
 <title>Morning Board</title>
 <style>
   :root {
-    --bg:#000;
-    --fg:#eaeaea;
-    --muted:#9aa0a6;
-    --green:#58d27a;
-    --amber:#ffa000;   /* orange for delays */
-    --red:#ff5252;     /* brighter red */
+    --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
+    --green:#58d27a; --amber:#ffa000; --red:#ff5252;
   }
   html,body{height:100%}
-  body{ margin:0; background:var(--bg); color:var(--fg);
-        font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-  .grid{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:0; height:100%; }
-  .tile{ background:#000; color:var(--fg); border:none; overflow:hidden; display:grid; place-items:center; }
-  iframe{ width:100%; height:100%; border:none; background:#000; }
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 
-  /* Top-left */
-  #tl_app{ text-align:center; }
-  .route{ font-weight:800; letter-spacing:.06em; margin-bottom:.6rem; font-size:clamp(14px,3vw,24px); }
-  .time{ font-weight:800; line-height:1.1; font-size:clamp(28px,9vw,64px); white-space:nowrap; }
-  .sub{ font-size:clamp(12px,2.5vw,16px); color:var(--muted); margin-top:.35rem; }
-  .small{ font-size:.5em; }
-  .strike{text-decoration:line-through}
+  .grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;height:100%}
+  .tile{background:#000;color:var(--fg);display:grid;place-items:center}
+  iframe{width:100%;height:100%;border:none;background:#000}
+
+  /* TL */
+  #tl_app{text-align:center}
+  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vw,24px)}
+  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vw,64px);white-space:nowrap}
+  .sub{font-size:clamp(12px,2.5vw,16px);color:var(--muted);margin-top:.35rem}
+  .small{font-size:.5em}.strike{text-decoration:line-through}
   .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
 
-  /* Bottom-left container centered */
-  #bl_app{ width:92%; margin:0 auto; }
+  /* BL container */
+  #bl_app{width:92%;margin:0 auto}
 
-  /* Titles (white, centered) */
-  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em;
-          font-size:clamp(12px,2.2vw,18px); margin:0; text-align:center; }
+  /* Titles */
+  .title{color:var(--fg);font-weight:800;letter-spacing:.06em;font-size:clamp(12px,2.2vw,18px);margin:0;text-align:center}
+  .title.right{text-align:left} /* sit over the numbers */
 
   /* Compact times */
-  .time-xs{ font-weight:800; line-height:1.1; font-size:clamp(14px,3.2vw,24px); white-space:nowrap; }
+  .time-xs{font-weight:800;line-height:1.1;font-size:clamp(14px,3.2vw,24px);white-space:nowrap}
 
   /* Direct block */
-  .direct-block{ text-align:center; width:100%; }
-  .direct-line{ margin-top:.25rem; }
-  .direct-gap{ height:clamp(14px,2.4vw,24px); }
+  .direct-block{text-align:center;width:100%}
+  .direct-line{margin-top:.25rem}
+  .direct-gap{height:clamp(14px,2.4vw,24px)}
 
-  /* 3-column grid (SRC-CLJ | Transfer | CLJ-IMW) */
-  .xfer-wrap{ width:100%; max-width:980px; display:grid; grid-template-columns:1fr; row-gap:10px; }
+  /* 3-col section (SRC-CLJ | Transfer | CLJ-IMW) */
+  .xfer-wrap{width:100%;max-width:980px;display:grid;grid-template-columns:1fr;row-gap:10px}
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 0.85fr 1.2fr; /* transfer closer to CLJ-IMW */
-    column-gap: 12px;
+    grid-template-columns:1fr 0.9fr 1.05fr;  /* bring Transfer+CLJ-IMW closer */
+    column-gap:8px;                          /* smaller gap */
     align-items:end;
   }
-  .xfer-header .title{ margin-bottom:.05rem; }
-  .xfer-header .title.right{ text-align:left; }  /* CLJ-IMW title aligned over the times */
+  .xfer-header .title{margin-bottom:.05rem}
 
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 0.85fr 1.2fr;  /* match header */
-    column-gap: 12px;
+    grid-template-columns:1fr 0.9fr 1.05fr;  /* match header */
+    column-gap:8px;                          /* tighter row gap */
     align-items:center;
     padding:6px 0;
   }
 
-  /* Left column: SRC-CLJ — centered, platform on its own line BELOW the times */
-  .left-cell{
-    display:flex; flex-direction:column; align-items:center; text-align:center;
-    align-self:center; transform: translateY(4px);
-  }
+  /* Left column: platform on its own line below times */
+  .left-cell{display:flex;flex-direction:column;align-items:center;text-align:center;align-self:center;transform:translateY(4px)}
 
-  /* Middle & Right columns: paired rows (transfer | time) that always stick together */
-  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.6rem; }
+  /* Middle & Right columns: paired rows that stick together */
+  .mid-cell,.right-cell{display:flex;flex-direction:column;gap:.6rem}
+  .right-cell{align-items:flex-start;text-align:left}  /* <-- left-align times */
 
-  .pair{
-    display:grid;
-    grid-template-columns: 1fr max-content;  /* transfer | times */
-    align-items:baseline;
-    column-gap: 10px;                         /* keep them on same row */
-  }
+  /* One row = (transfer | times) */
+  .pair{display:grid;grid-template-columns:auto max-content;align-items:baseline;column-gap:10px}
 
-  /* Transfer styles: larger, arrow, warning red; otherwise white */
-  .transfer{ font-size: clamp(12px,2.6vw,18px); }
-  .trans-ok{ color:var(--fg); }
-  .trans-warn{ color:var(--red); }
-  .transfer .arrow{ margin-left:.35em; }
+  /* Transfer text: slightly larger + arrow; red when <4min, otherwise white */
+  .transfer{font-size:clamp(12px,2.6vw,18px)}
+  .trans-ok{color:var(--fg)} .trans-warn{color:var(--red)}
+  .transfer .arrow{margin-left:.35em}
 </style>
 </head>
 <body>
   <div class="grid">
-    <!-- TOP LEFT: STE→WIM -->
+    <!-- TL -->
     <section class="tile"><div id="tl_app">Loading…</div></section>
 
-    <!-- TOP RIGHT: District Line iframe -->
+    <!-- TR -->
     <section class="tile">
       <iframe src="https://donostio.github.io/DLstatus/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
     </section>
 
-    <!-- BOTTOM LEFT: SRC→CLJ→IMW -->
+    <!-- BL -->
     <section class="tile"><div id="bl_app">Loading…</div></section>
 
-    <!-- BOTTOM RIGHT: Weather iframe -->
+    <!-- BR -->
     <section class="tile">
       <iframe src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
     </section>
   </div>
 
 <script>
-const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
-const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
+const fmt=t=>t?t.slice(0,2)+":"+t.slice(2):"—";
+const colorFor=st=>st==='cancelled'?'red':(st==='delayed'?'amber':'green');
 
-/* One time atom per rules */
-function timeAtom(booked, real, status){
-  if(status === 'cancelled'){
-    return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
-  }
-  if(status === 'delayed' && real && real !== booked){
-    return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
-  }
+function timeAtom(booked,real,status){
+  if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
+  if(status==='delayed'&&real&&real!==booked) return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
   return `<span class="green">${fmt(booked)}</span>`;
 }
-/* Dep-arr pair with dash in active colour */
-function pairAtoms(depBooked, depReal, arrBooked, arrReal, status){
-  const color = colorFor(status);
-  const left  = timeAtom(depBooked, depReal, status);
-  const right = timeAtom(arrBooked, arrReal, status);
-  return `${left} <span class="${color}">-</span> ${right}`;
+function pairAtoms(depB,depR,arrB,arrR,status){
+  const c=colorFor(status);
+  return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
 }
 
-/* ---------- TOP LEFT (STE→WIM) ---------- */
+/* TL render */
 function renderTL(s){
-  const el = document.getElementById('tl_app');
-  if(!s || s.error){
-    el.innerHTML = `<div class="route">STE-WIM</div><div class="time red">Error</div>`;
-    return;
-  }
-  const o = s.origin || {}, d = s.destination || {};
-  let status = (o.isCancelled || d.isCancelled) ? 'cancelled' : (s.status === 'delayed' ? 'delayed' : 'on_time');
-
-  const depBooked = o.bookedDeparture || s.gbttBookedDeparture || null;
-  const depReal   = o.realtimeDeparture || null;
-  const arrBooked = d.bookedArrival || null;
-  const arrReal   = d.realtimeArrival || null;
-
-  let timeHTML;
-  if(status === 'cancelled'){
-    timeHTML = `<div class="time red">${timeAtom(depBooked, null, 'cancelled')} CANCELLED</div>`;
-  }else{
-    timeHTML = `<div class="time">${pairAtoms(depBooked, depReal, arrBooked, arrReal, status)}</div>`;
-  }
-
-  const platHTML = (o.platform || d.platform)
-    ? `<div class="sub">Plat ${o.platform || "?"} · Plat ${d.platform || "?"}</div>`
-    : "";
-
-  el.innerHTML = `<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
+  const el=document.getElementById('tl_app');
+  if(!s||s.error){el.innerHTML=`<div class="route">STE-WIM</div><div class="time red">Error</div>`;return;}
+  const o=s.origin||{},d=s.destination||{};
+  let status=(o.isCancelled||d.isCancelled)?'cancelled':(s.status==='delayed'?'delayed':'on_time');
+  const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
+  const arrB=d.bookedArrival, arrR=d.realtimeArrival;
+  const timeHTML=status==='cancelled'
+    ? `<div class="time red">${timeAtom(depB,null,'cancelled')} CANCELLED</div>`
+    : `<div class="time">${pairAtoms(depB,depR,arrB,arrR,status)}</div>`;
+  const platHTML=(o.platform||d.platform)?`<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`:"";
+  el.innerHTML=`<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
 }
-async function loadTL(){
-  try{ const r = await fetch('./status.json?ts='+Date.now(), { cache:'no-store' }); renderTL(await r.json()); }
-  catch{ renderTL({ error:true }); }
-}
-loadTL(); setInterval(loadTL, 60000);
+async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
+loadTL();setInterval(loadTL,60000);
 
-/* ---------- BOTTOM LEFT (SRC→CLJ→IMW) ---------- */
+/* BL render */
 function renderBL(data){
-  const el = document.getElementById('bl_app');
-  if(!data || data.error){ el.innerHTML = `<div class="time-xs red">No data</div>`; return; }
+  const el=document.getElementById('bl_app');
+  if(!data||data.error){el.innerHTML=`<div class="time-xs red">No data</div>`;return;}
+  const toM=t=>t?(+t.slice(0,2))*60+(+t.slice(2)):null;
+  const out=[];
 
-  const toM = t => t ? (parseInt(t.slice(0,2))*60 + parseInt(t.slice(2))) : null;
-  const blocks = [];
-
-  /* DIRECT at top */
-  const platInline = data.direct ? ` <span class="muted small">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>` : "";
-  blocks.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platInline}</div>`);
-  if (data.direct){
-    const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
-    if(st === 'cancelled'){
-      blocks.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
+  /* Direct at top */
+  const platInline=data.direct?` <span class="muted small">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>`:"";
+  out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platInline}</div>`);
+  if(data.direct){
+    const st=data.direct.status==='delayed'?'delayed':(data.direct.status==='cancelled'?'cancelled':'on_time');
+    if(st==='cancelled'){
+      out.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`);
     }else{
-      const pair = pairAtoms(data.direct.srcDep, data.direct.srcDepReal, data.direct.imwArr, data.direct.imwArrReal, st);
-      blocks.push(`<div class="time-xs direct-line">${pair}</div>`);
+      out.push(`<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`);
     }
-  } else {
-    blocks.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
+  }else{
+    out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
-  blocks.push(`</div>`);
-  blocks.push(`<div class="direct-gap"></div>`);
+  out.push(`</div><div class="direct-gap"></div>`);
 
-  /* HEADERS */
-  blocks.push(`
+  /* Headers */
+  out.push(`
     <div class="xfer-wrap">
       <div class="xfer-header">
         <div class="title">SRC-CLJ</div>
@@ -196,41 +155,35 @@ function renderBL(data){
       </div>
   `);
 
-  /* ROWS */
+  /* Rows */
   for(const leg of (data.legs||[])){
-    let legStatus = 'on_time';
-    const srcLate = leg.srcDepReal && toM(leg.srcDepReal) > toM(leg.srcDep);
-    const arrLate = leg.cljArrReal && toM(leg.cljArrReal) > toM(leg.cljArr);
-    if (srcLate || arrLate) legStatus = 'delayed';
+    let legStatus='on_time';
+    const srcLate=leg.srcDepReal&&toM(leg.srcDepReal)>toM(leg.srcDep);
+    const arrLate=leg.cljArrReal&&toM(leg.cljArrReal)>toM(leg.cljArr);
+    if(srcLate||arrLate) legStatus='delayed';
 
-    const leftPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
+    const leftPair=pairAtoms(leg.srcDep,leg.srcDepReal,leg.cljArr,leg.cljArrReal,legStatus);
 
-    const conns = (leg.connections||[]).slice(0,2).map(c=>{
-      const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
-      const pair = (st==='cancelled')
-        ? `${timeAtom(c.cljDep || '', null, 'cancelled')} CANCELLED`
-        : pairAtoms(c.cljDep, c.cljDepReal, c.imwArr, c.imwArrReal, st);
-
-      const mArr  = toM(leg.cljArrReal || leg.cljArr);
-      const mDep  = toM(c.cljDepReal || c.cljDep);
-      let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
-      if (xfer!=null && xfer<0) xfer = null;
-      const warn = (xfer!=null && xfer < 4);
-      const cls = warn ? 'trans-warn' : 'trans-ok';
-      const minsText = xfer==null ? "?mins" : `${xfer}mins`;
-      const transferText = `<span class="transfer ${cls}">${minsText} transfer – plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
-
-      return { transferText, pair };
+    const conns=(leg.connections||[]).slice(0,2).map(c=>{
+      const st=c.status==='delayed'?'delayed':(c.status==='cancelled'?'cancelled':'on_time');
+      const pair=st==='cancelled'
+        ? `${timeAtom(c.cljDep||'',null,'cancelled')} CANCELLED`
+        : pairAtoms(c.cljDep,c.cljDepReal,c.imwArr,c.imwArrReal,st);
+      const mArr=toM(leg.cljArrReal||leg.cljArr), mDep=toM(c.cljDepReal||c.cljDep);
+      let xfer=(mArr!=null&&mDep!=null)?(mDep-mArr):null; if(xfer!=null&&xfer<0) xfer=null;
+      const warn=(xfer!=null&&xfer<4), minsText=xfer==null?"?mins":`${xfer}mins`;
+      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${minsText} transfer – plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
+      return {transfer,pair};
     });
 
-    const midCol = conns.map(p=>`<div class="pair"><div>${p.transferText}</div><div></div></div>`).join("");
-    const rightCol = conns.map(p=>`<div class="pair"><div></div><div class="time-xs">${p.pair}</div></div>`).join("");
+    const midCol=conns.map(p=>`<div class="pair"><div>${p.transfer}</div><div></div></div>`).join("");
+    const rightCol=conns.map(p=>`<div class="pair"><div></div><div class="time-xs">${p.pair}</div></div>`).join("");
 
-    blocks.push(`
+    out.push(`
       <div class="xrow">
         <div class="left-cell">
           <div class="time-xs">${leftPair}</div>
-          <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
+          <div class="sub">plat ${leg.cljPlatArr||"?"}</div>
         </div>
         <div class="mid-cell">${midCol || `<div class="transfer trans-ok">—</div>`}</div>
         <div class="right-cell">${rightCol || `<div class="time-xs muted">—</div>`}</div>
@@ -238,15 +191,11 @@ function renderBL(data){
     `);
   }
 
-  blocks.push(`</div>`); /* end xfer-wrap */
-  el.innerHTML = blocks.join("");
+  out.push(`</div>`); /* end xfer-wrap */
+  el.innerHTML=out.join("");
 }
-
-async function loadBL(){
-  try{ const r = await fetch('./xfer.json?ts='+Date.now(), { cache:'no-store' }); renderBL(await r.json()); }
-  catch{ renderBL({ error:true }); }
-}
-loadBL(); setInterval(loadBL, 60000);
+async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
+loadBL();setInterval(loadBL,60000);
 </script>
 </body>
 </html>
