@@ -31,17 +31,21 @@ const CUTOVER   = process.env.CUTOVER_LOCAL_TIME || '09:00';
 function toMinutes(hhmm) {
   return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10);
 }
-function fmtHM(hhmm) {
-  return hhmm ? hhmm.slice(0,2)+':'+hhmm.slice(2) : null;
-}
 function ymdParts(dateStr) {
   const [y,m,d] = dateStr.split('-'); return {y,m,d};
 }
+function isoShiftDays(iso, days) {
+  const dt = new Date(iso + 'T00:00:00Z'); // treat as UTC midnight
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0,10);
+}
+function currentHM(tz=LONDON_TZ){
+  return new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
+}
 function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER) {
-  const now = new Date();
-  const hm = new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(now);
-  const todayISO = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
-  const today = new Date(todayISO); // local midnight (ISO yyyy-mm-dd) in system tz
+  const hm = currentHM(tz);
+  const todayISO = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const today = new Date(todayISO); // parses as UTC midnight; fine since we only need yyyy-mm-dd
   const base = (toMinutes(hm) >= toMinutes(cut)) ? new Date(today.getTime()+86400000) : today;
   return base.toISOString().slice(0,10);
 }
@@ -73,7 +77,7 @@ function pickStatus(o, d) {
 
 (async ()=>{
   const iso = targetServiceDate();
-  const {y, m, d: dd} = ymdParts(iso);      // <-- rename day to dd to avoid clash
+  const {y, m, d: dd} = ymdParts(iso);
   const datePath = `${y}/${m}/${dd}`;
 
   const searchUrl = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${HHMM}`;
@@ -87,10 +91,11 @@ function pickStatus(o, d) {
     process.exit(0);
   }
 
-  const svc = (search?.services || []).find(s => {
+  const services = search?.services || [];
+  const svc = services.find(s => {
     const bd = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
     return bd === HHMM;
-  }) || (search?.services || [])[0];
+  }) || services[0];
 
   if (!svc || !svc.serviceUid) {
     const err = { error:`No service found at ${ORIGIN}->${DEST} ${datePath} ${HHMM}`, when:new Date().toISOString() };
@@ -99,26 +104,51 @@ function pickStatus(o, d) {
     process.exit(0);
   }
 
-  const detailUrl = `https://api.rtt.io/api/v1/json/service/${svc.serviceUid}/${iso}`;
-  let detail;
-  try { detail = await fetchJSON(detailUrl); }
-  catch(e){
-    const err = { error:String(e), when:new Date().toISOString() };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
-    console.error(err); process.exit(0);
+  // Prefer the runDate RTT gives us; fallback to iso
+  const svcRunISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
+
+  async function getDetailWithFallback(uid, primaryISO){
+    const makeUrl = (u, d) => `https://api.rtt.io/api/v1/json/service/${u}/${d}`;
+    try {
+      return await fetchJSON(makeUrl(uid, primaryISO));
+    } catch (e) {
+      const msg = String(e);
+      // If 404, try adjacent day: after cutover -> next day; before cutover -> previous day
+      if (msg.includes('HTTP 404')) {
+        const hm = currentHM(LONDON_TZ);
+        const altISO = (toMinutes(hm) >= toMinutes(CUTOVER))
+          ? isoShiftDays(primaryISO, +1)
+          : isoShiftDays(primaryISO, -1);
+        try {
+          return await fetchJSON(makeUrl(uid, altISO));
+        } catch (e2) {
+          throw e; // bubble original 404
+        }
+      }
+      throw e;
+    }
   }
 
-  // helper closes over 'detail'
+  let detail;
+  try {
+    detail = await getDetailWithFallback(svc.serviceUid, svcRunISO);
+  } catch(e){
+    const err = { error:String(e), when:new Date().toISOString(), triedDate: svcRunISO };
+    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
+    console.error(err);
+    process.exit(0);
+  }
+
   const findStop = (crs) => (detail?.locations || []).find(l => l.crs === crs);
 
   const o = findStop(ORIGIN) || {};
-  const dest = findStop(DEST) || {};        // <-- rename destination stop to 'dest'
+  const dest = findStop(DEST) || {};
 
   const out = {
     generatedAt: new Date().toISOString(),
-    date: iso,
+    date: svcRunISO,
     serviceUid: svc.serviceUid,
-    runDate: iso,
+    runDate: svcRunISO,
     originCRS: ORIGIN,
     destinationCRS: DEST,
     gbttBookedDeparture: HHMM,
@@ -148,9 +178,9 @@ function pickStatus(o, d) {
     },
     status: pickStatus(o, dest),
     searchUrl,
-    detailUrl
+    detailTriedDate: svcRunISO
   };
 
   fs.writeFileSync('status.json', JSON.stringify(out,null,2));
-  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, iso);
+  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, 'runDate', svcRunISO);
 })();
