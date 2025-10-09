@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "*/5 5-6 * * 1-5"
+    - cron: "*/5 5-6 * * 1-5"   # weekdays, runs frequently in UTC mornings
   workflow_dispatch:
     inputs:
       force:
@@ -45,7 +45,7 @@ jobs:
           fi
           node -e "const tz=process.env.LONDON_TZ||'Europe/London';const start=process.env.START||'06:30';const end=process.env.END||'07:15';const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false});const hm=fmt.format(new Date());const toM=s=>parseInt(s.slice(0,2))*60+parseInt(s.slice(3,5));const cur=toM(hm),sM=toM(start),eM=toM(end);const ok=(cur>=sM&&cur<=eM);console.log('Local time:',hm,'window',start,'-',end,'->',ok);if(!ok)process.exit(78);"
 
-      - name: Fetch Realtime Trains + write files
+      - name: Fetch Realtime Trains (STE->WIM) and write status.json
         env:
           RTT_USERNAME: "${{ secrets.RTT_USERNAME }}"
           RTT_PASSWORD: "${{ secrets.RTT_PASSWORD }}"
@@ -55,10 +55,17 @@ jobs:
           LONDON_TZ: "${{ env.LONDON_TZ }}"
         run: node scripts/fetch_rtt.js
 
-      - name: Commit status.json
+      - name: Build SRC-CLJ-IMW transfer options (write xfer.json)
+        env:
+          RTT_USERNAME: "${{ secrets.RTT_USERNAME }}"
+          RTT_PASSWORD: "${{ secrets.RTT_PASSWORD }}"
+          LONDON_TZ: "Europe/London"
+        run: node scripts/xfer_plan.js
+
+      - name: Commit board JSON
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add status.json history.jsonl
-          git commit -m "Update train status snapshot" || echo "No changes"
+          git add status.json xfer.json history.jsonl
+          git commit -m "Update board snapshots" || echo "No changes"
           git push
