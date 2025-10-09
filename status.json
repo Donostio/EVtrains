@@ -1,4 +1,5 @@
 {
   "error": "Error: HTTP 404 Not Found for https://api.rtt.io/api/v1/json/service/Y37242/2025-10-09",
-  "when": "2025-10-09T17:14:29.512Z"
+  "when": "2025-10-09T17:28:57.398Z",
+  "triedDate": "2025-10-09"
 }
