@@ -7,11 +7,11 @@
  *
  * Rolls to TOMORROW after 09:00 Europe/London (configurable via CUTOVER_LOCAL_TIME).
  *
- * Env:
+ * Env (set in your workflow step):
  *  - RTT_USERNAME, RTT_PASSWORD   (required)
  *  - LONDON_TZ (default "Europe/London")
  *  - CUTOVER_LOCAL_TIME (default "09:00")
- *  - WINDOW_START (default "0725")
+ *  - WINDOW_START (default "0725")   // anchor = direct
  *  - WINDOW_END   (default "0845")
  *
  * CRS:
@@ -37,7 +37,7 @@ const SRC = 'SRC';
 const CLJ = 'CLJ';
 const IMW = 'IMW';
 
-const WINDOW_START = process.env.WINDOW_START || '0725'; // anchor direct
+const WINDOW_START = process.env.WINDOW_START || '0725'; // anchor/direct
 const WINDOW_END   = process.env.WINDOW_END   || '0845';
 
 function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10); }
@@ -91,8 +91,8 @@ async function searchFromTo(from, to, datePath, hhmm) {
 
 (async ()=>{
   const iso = targetServiceDate();
-  const {y,m,d} = ymdParts(iso);
-  const datePath = `${y}/${m}/${d}`;
+  const {y, m, d: dd} = ymdParts(iso);
+  const datePath = `${y}/${m}/${dd}`;
 
   const out = {
     generatedAt: new Date().toISOString(),
@@ -105,20 +105,20 @@ async function searchFromTo(from, to, datePath, hhmm) {
   // -------- Direct SRC -> IMW at 07:25 --------
   try{
     const directServices = await searchFromTo(SRC, IMW, datePath, WINDOW_START);
-    // look for the one that is exactly 07:25 at SRC if present, else the first service at/after
+    // Prefer exact 07:25; else first service returned
     let directSvc = directServices.find(s => (s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture) === WINDOW_START) || directServices[0];
     if (directSvc && directSvc.serviceUid){
       const detail = await getServiceDetail(directSvc.serviceUid, iso);
       const o = findStop(detail, SRC);
-      const dStop = findStop(detail, IMW);
+      const iw = findStop(detail, IMW);
       out.direct = {
-        status: statusFrom(o, dStop),
+        status: statusFrom(o, iw),
         srcDep: o.gbttBookedDeparture || null,
         srcDepReal: o.realtimeDeparture || null,
         srcPlat: o.platform || null,
-        imwArr: dStop.gbttBookedArrival || null,
-        imwArrReal: dStop.realtimeArrival || null,
-        imwPlat: dStop.platform || null
+        imwArr: iw.gbttBookedArrival || null,
+        imwArrReal: iw.realtimeArrival || null,
+        imwPlat: iw.platform || null
       };
     }
   }catch(e){
@@ -127,12 +127,11 @@ async function searchFromTo(from, to, datePath, hhmm) {
 
   // -------- First leg SRC -> CLJ AFTER 07:25 up to WINDOW_END --------
   try{
-    // Pull from 07:25, then filter strictly after 07:25
     const all = await searchFromTo(SRC, CLJ, datePath, WINDOW_START);
     const after = all.filter(s=>{
       const dep = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
       return dep && toMinutes(dep) > toMinutes(WINDOW_START) && toMinutes(dep) <= toMinutes(WINDOW_END);
-    }).slice(0, 6); // fetch a few extras in case some have no valid connection
+    });
 
     const legs = [];
     for (const svc of after){
@@ -142,7 +141,7 @@ async function searchFromTo(from, to, datePath, hhmm) {
       const a = findStop(det, CLJ);
       if (!o?.gbttBookedDeparture || !a?.gbttBookedArrival) continue;
 
-      // Search connections from CLJ -> IMW that depart >= (arrReal||arrBooked)+1min
+      // Connections: CLJ -> IMW, depart >= (arrReal||arrBooked) + 1 minute
       const arrMin = toMinutes(a.realtimeArrival || a.gbttBookedArrival);
       const startHHMM = String(Math.floor((arrMin+1)/60)).padStart(2,'0') + String((arrMin+1)%60).padStart(2,'0');
 
@@ -157,7 +156,6 @@ async function searchFromTo(from, to, datePath, hhmm) {
           const iw = findStop(cd, IMW);
           if (!cj?.gbttBookedDeparture || !iw?.gbttBookedArrival) continue;
 
-          // sanity: make sure dep >= arrival+1
           const depMin = toMinutes(cj.realtimeDeparture || cj.gbttBookedDeparture);
           if (depMin < arrMin + 1) continue;
 
@@ -185,7 +183,7 @@ async function searchFromTo(from, to, datePath, hhmm) {
         connections: conns
       });
 
-      if (legs.length >= 3) break; // only keep next three
+      if (legs.length >= 3) break; // only keep next three AFTER 07:25
     }
 
     out.legs = legs;
