@@ -5,96 +5,118 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Morning Board</title>
 <style>
-  :root {
+  :root{
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
     --green:#58d27a; --amber:#ffa000; --red:#ff5252;
   }
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:0;height:100%}
-  .tile{background:#000;color:var(--fg);display:grid;place-items:center}
-  iframe{width:100%;height:100%;border:none;background:#000}
+  .grid{
+    display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:0; height:100%;
+  }
+  .tile{
+    background:#000; color:var(--fg);
+    display:grid; place-items:center; overflow:hidden;
+  }
+  /* pull inner content toward centre (less empty middle) */
+  .tile.left  > .inner{ justify-self:end; }
+  .tile.right > .inner{ justify-self:start; }
 
-  /* TL */
+  iframe{ width:100%; height:100%; border:none; background:#000; }
+
+  /* TL typography (use vmin so it scales in landscape too) */
   #tl_app{text-align:center}
-  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vw,24px)}
-  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vw,64px);white-space:nowrap}
-  .sub{font-size:clamp(12px,2.5vw,16px);color:var(--muted);margin-top:.35rem}
-  .small{font-size:.5em}.strike{text-decoration:line-through}
+  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vmin,24px)}
+  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vmin,64px);white-space:nowrap}
+  .sub{font-size:clamp(12px,2.5vmin,16px);color:var(--muted);margin-top:.35rem}
+  .small{font-size:.5em}
+  .strike{text-decoration:line-through}
   .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
 
-  /* BL container */
-  #bl_app{width:92%;margin:0 auto}
+  /* BL container centred & nudged inward */
+  #bl_app{ width:92%; margin:0 auto; }
 
-  /* Titles */
-  .title{color:var(--fg);font-weight:800;letter-spacing:.06em;font-size:clamp(12px,2.2vw,18px);margin:0;text-align:center}
-  .title.right{text-align:left} /* sit over the numbers */
+  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em; font-size:clamp(12px,2.2vmin,18px); margin:0; text-align:center }
+  .title.right{text-align:left}
 
-  /* Compact times */
-  .time-xs{font-weight:800;line-height:1.1;font-size:clamp(14px,3.2vw,24px);white-space:nowrap}
+  .time-xs{ font-weight:800; line-height:1.1; font-size:clamp(14px,3vmin,24px); white-space:nowrap }
 
-  /* Direct block */
   .direct-block{text-align:center;width:100%}
   .direct-line{margin-top:.25rem}
-  .direct-gap{height:clamp(14px,2.4vw,24px)}
+  .direct-gap{height:clamp(14px,2.4vmin,24px)}
 
   /* 3-col section (SRC-CLJ | Transfer | CLJ-IMW) */
   .xfer-wrap{width:100%;max-width:980px;display:grid;grid-template-columns:1fr;row-gap:10px}
   .xfer-header{
     display:grid;
-    grid-template-columns:1fr 0.9fr 1.05fr;  /* bring Transfer+CLJ-IMW closer */
-    column-gap:8px;                          /* smaller gap */
-    align-items:end;
+    grid-template-columns:1fr 0.9fr 1.05fr; /* Transfer close to CLJ-IMW */
+    column-gap:8px; align-items:end;
   }
   .xfer-header .title{margin-bottom:.05rem}
 
   .xrow{
     display:grid;
-    grid-template-columns:1fr 0.9fr 1.05fr;  /* match header */
-    column-gap:8px;                          /* tighter row gap */
-    align-items:center;
-    padding:6px 0;
+    grid-template-columns:1fr 0.9fr 1.05fr;
+    column-gap:8px; align-items:center; padding:6px 0;
   }
 
-  /* Left column: platform on its own line below times */
-  .left-cell{display:flex;flex-direction:column;align-items:center;text-align:center;align-self:center;transform:translateY(4px)}
+  .left-cell{
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    align-self:center; transform:translateY(4px);
+  }
+  .mid-cell,.right-cell{ display:flex; flex-direction:column; gap:.6rem }
+  .right-cell{ align-items:flex-start; text-align:left } /* left-align times under header */
 
-  /* Middle & Right columns: paired rows that stick together */
-  .mid-cell,.right-cell{display:flex;flex-direction:column;gap:.6rem}
-  .right-cell{align-items:flex-start;text-align:left}  /* <-- left-align times */
+  /* a single connected pair row (transfer | times) */
+  .pair{ display:grid; grid-template-columns:auto max-content; align-items:baseline; column-gap:10px }
 
-  /* One row = (transfer | times) */
-  .pair{display:grid;grid-template-columns:auto max-content;align-items:baseline;column-gap:10px}
+  .transfer{ font-size:clamp(12px,2.6vmin,18px) }
+  .trans-ok{ color:var(--fg) }
+  .trans-warn{ color:var(--red) }
+  .transfer .arrow{ margin-left:.35em }
 
-  /* Transfer text: slightly larger + arrow; red when <4min, otherwise white */
-  .transfer{font-size:clamp(12px,2.6vw,18px)}
-  .trans-ok{color:var(--fg)} .trans-warn{color:var(--red)}
-  .transfer .arrow{margin-left:.35em}
+  /* ——— Mobile portrait tweaks ——— */
+  @media (max-width: 768px) and (orientation: portrait){
+    .mid-cell,.right-cell{ gap:1rem }            /* more space between connection pairs */
+    .pair{ column-gap:12px }                      /* push times a little further from transfer */
+    .grid{ grid-template-rows:1fr 1fr }           /* keep 2x2 layout */
+  }
+
+  /* ——— Mobile landscape tweaks ——— */
+  @media (max-height: 480px) and (orientation: landscape){
+    .route{font-size:clamp(12px,2.4vmin,20px)}
+    .time{font-size:clamp(22px,7.2vmin,54px)}
+    .title{font-size:clamp(11px,1.9vmin,16px)}
+    .time-xs{font-size:clamp(12px,2.6vmin,20px)}
+    .sub{font-size:clamp(10px,2vmin,14px)}
+    /* scale iframes a touch to avoid scrollbars from third-party pages */
+    .tile.right iframe{ transform:scale(.92); transform-origin:top left; width:109%; height:109%; }
+  }
 </style>
 </head>
 <body>
   <div class="grid">
-    <!-- TL -->
-    <section class="tile"><div id="tl_app">Loading…</div></section>
+    <!-- TOP LEFT -->
+    <section class="tile left"><div class="inner" id="tl_app">Loading…</div></section>
 
-    <!-- TR -->
-    <section class="tile">
+    <!-- TOP RIGHT -->
+    <section class="tile right"><div class="inner">
       <iframe src="https://donostio.github.io/DLstatus/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
-    </section>
+    </div></section>
 
-    <!-- BL -->
-    <section class="tile"><div id="bl_app">Loading…</div></section>
+    <!-- BOTTOM LEFT -->
+    <section class="tile left"><div class="inner" id="bl_app">Loading…</div></section>
 
-    <!-- BR -->
-    <section class="tile">
+    <!-- BOTTOM RIGHT -->
+    <section class="tile right"><div class="inner">
       <iframe src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
-    </section>
+    </div></section>
   </div>
 
 <script>
-const fmt=t=>t?t.slice(0,2)+":"+t.slice(2):"—";
-const colorFor=st=>st==='cancelled'?'red':(st==='delayed'?'amber':'green');
+const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
+const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 
 function timeAtom(booked,real,status){
   if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
@@ -106,27 +128,29 @@ function pairAtoms(depB,depR,arrB,arrR,status){
   return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
 }
 
-/* TL render */
+/* ---------- TOP LEFT (STE→WIM) ---------- */
 function renderTL(s){
   const el=document.getElementById('tl_app');
   if(!s||s.error){el.innerHTML=`<div class="route">STE-WIM</div><div class="time red">Error</div>`;return;}
-  const o=s.origin||{},d=s.destination||{};
-  let status=(o.isCancelled||d.isCancelled)?'cancelled':(s.status==='delayed'?'delayed':'on_time');
+  const o=s.origin||{}, d=s.destination||{};
+  const status=(o.isCancelled||d.isCancelled)?'cancelled':(s.status==='delayed'?'delayed':'on_time');
   const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
   const arrB=d.bookedArrival, arrR=d.realtimeArrival;
-  const timeHTML=status==='cancelled'
+
+  const content = status==='cancelled'
     ? `<div class="time red">${timeAtom(depB,null,'cancelled')} CANCELLED</div>`
     : `<div class="time">${pairAtoms(depB,depR,arrB,arrR,status)}</div>`;
-  const platHTML=(o.platform||d.platform)?`<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`:"";
-  el.innerHTML=`<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
+  const plat=(o.platform||d.platform)?`<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`:"";
+  el.innerHTML=`<div class="route">STE-WIM</div>${content}${plat}`;
 }
 async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
-loadTL();setInterval(loadTL,60000);
+loadTL(); setInterval(loadTL,60000);
 
-/* BL render */
+/* ---------- BOTTOM LEFT (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
   const el=document.getElementById('bl_app');
-  if(!data||data.error){el.innerHTML=`<div class="time-xs red">No data</div>`;return;}
+  if(!data||data.error){ el.innerHTML=`<div class="time-xs red">No data</div>`; return; }
+
   const toM=t=>t?(+t.slice(0,2))*60+(+t.slice(2)):null;
   const out=[];
 
@@ -158,8 +182,8 @@ function renderBL(data){
   /* Rows */
   for(const leg of (data.legs||[])){
     let legStatus='on_time';
-    const srcLate=leg.srcDepReal&&toM(leg.srcDepReal)>toM(leg.srcDep);
-    const arrLate=leg.cljArrReal&&toM(leg.cljArrReal)>toM(leg.cljArr);
+    const srcLate=leg.srcDepReal && toM(leg.srcDepReal)>toM(leg.srcDep);
+    const arrLate=leg.cljArrReal && toM(leg.cljArrReal)>toM(leg.cljArr);
     if(srcLate||arrLate) legStatus='delayed';
 
     const leftPair=pairAtoms(leg.srcDep,leg.srcDepReal,leg.cljArr,leg.cljArrReal,legStatus);
@@ -169,15 +193,16 @@ function renderBL(data){
       const pair=st==='cancelled'
         ? `${timeAtom(c.cljDep||'',null,'cancelled')} CANCELLED`
         : pairAtoms(c.cljDep,c.cljDepReal,c.imwArr,c.imwArrReal,st);
+
       const mArr=toM(leg.cljArrReal||leg.cljArr), mDep=toM(c.cljDepReal||c.cljDep);
       let xfer=(mArr!=null&&mDep!=null)?(mDep-mArr):null; if(xfer!=null&&xfer<0) xfer=null;
-      const warn=(xfer!=null&&xfer<4), minsText=xfer==null?"?mins":`${xfer}mins`;
-      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${minsText} transfer – plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
+      const warn=(xfer!=null&&xfer<4), mins=xfer==null?'?':xfer;
+      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${mins} min · plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
       return {transfer,pair};
     });
 
-    const midCol=conns.map(p=>`<div class="pair"><div>${p.transfer}</div><div></div></div>`).join("");
-    const rightCol=conns.map(p=>`<div class="pair"><div></div><div class="time-xs">${p.pair}</div></div>`).join("");
+    const midCol = conns.map(p=>`<div class="pair"><div>${p.transfer}</div><div></div></div>`).join("");
+    const rightCol= conns.map(p=>`<div class="pair"><div></div><div class="time-xs">${p.pair}</div></div>`).join("");
 
     out.push(`
       <div class="xrow">
@@ -191,11 +216,11 @@ function renderBL(data){
     `);
   }
 
-  out.push(`</div>`); /* end xfer-wrap */
+  out.push(`</div>`);
   el.innerHTML=out.join("");
 }
 async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
-loadBL();setInterval(loadBL,60000);
+loadBL(); setInterval(loadBL,60000);
 </script>
 </body>
 </html>
