@@ -69,7 +69,7 @@
   /* TL centering */
   #tl_app{ text-align:center; }
 
-  /* BL 40% smaller variants + indent + spacer */
+  /* BL smaller variants */
   .route-sm{
     font-weight:800;
     letter-spacing:.06em;
@@ -81,8 +81,27 @@
     line-height:1.1;
     font-size: clamp(17px, 5.4vw, 38px);
   }
-  .indent{ padding-left: 2.25em; }
   .spacer{ height: clamp(8px, 2.5vw, 16px); }
+
+  /* New: "invisible table" grid for legs */
+  .xfer{
+    width: 90%;
+    max-width: 780px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 24px;
+    row-gap: 14px;
+    align-items: start;
+  }
+  .hdr{
+    color: var(--muted);
+    font-weight: 700;
+    letter-spacing: .04em;
+    font-size: clamp(11px, 2vw, 14px);
+  }
+  .cell{ }
+  .line{ margin: .15rem 0; }
+  .indent { padding-left: 1.25em; }
 </style>
 </head>
 <body>
@@ -123,13 +142,11 @@ const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'g
 /* Build one time atom per your rules */
 function timeAtom(booked, real, status){
   if(status === 'cancelled'){
-    // booked time, red, strike, and the word CANCELLED (used where appropriate)
     return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
   }
   if(status === 'delayed' && real && real !== booked){
     return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
   }
-  // on-time or early: booked only, green
   return `<span class="green">${fmt(booked)}</span>`;
 }
 
@@ -151,7 +168,6 @@ function renderTL(s){
   const o = s.origin || {};
   const d = s.destination || {};
 
-  // Treat 'early' visually like on_time (no brackets, green)
   let status = (o.isCancelled || d.isCancelled) ? 'cancelled'
              : (s.status === 'delayed' ? 'delayed' : 'on_time');
 
@@ -191,77 +207,85 @@ function renderBL(data){
 
   const toM = t => t ? (parseInt(t.slice(0,2))*60 + parseInt(t.slice(2))) : null;
 
-  const out = [];
+  const blocks = [];
 
-  // ----- Direct block -----
-  out.push(`<div class="route-sm">SRC-IMW (direct)</div>`);
+  // Direct block (title + one line, as before)
+  blocks.push(`<div class="route-sm">SRC-IMW (direct)</div>`);
   if (data.direct){
     const st = data.direct.status === 'delayed' ? 'delayed' : (data.direct.status === 'cancelled' ? 'cancelled' : 'on_time');
-
     if(st === 'cancelled'){
-      out.push(`<div class="time-sm red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
+      blocks.push(`<div class="time-sm red">${timeAtom(data.direct.srcDep, null, 'cancelled')} CANCELLED</div>`);
     }else{
       const pair = pairAtoms(
         data.direct.srcDep, data.direct.srcDepReal,
         data.direct.imwArr, data.direct.imwArrReal, st
       );
-      out.push(`<div class="time-sm">${pair}</div>`);
-      out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+      blocks.push(`<div class="time-sm">${pair}</div>`);
+      blocks.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
     }
   } else {
-    out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
+    blocks.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
 
   // Spacer
-  out.push(`<div class="spacer"></div>`);
+  blocks.push(`<div class="spacer"></div>`);
 
-  // ----- Legs + connection bullets -----
+  // Build the invisible table for remaining legs
+  const rows = [];
+  // Header row
+  rows.push(`
+    <div class="hdr">SRC-CLJ</div>
+    <div class="hdr">CLJ-IMW</div>
+  `);
+
   for(const leg of (data.legs||[])){
-    // Leg header (SRC-CLJ) — apply the same bracket/colour rules
-    const legStatus = 'on_time'; // schedule-focused unless you prefer to derive a "delayed" state for the header
-    const legPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
-
-    out.push(`
-      <div class="route-sm">
-        SRC - CLJ ${legPair} <span class="muted">(arr. plat ${leg.cljPlatArr || "?"})</span>
+    // Determine header status (delayed if either leg late)
+    let legStatus = 'on_time';
+    if ((leg.srcDepReal && leg.srcDepReal !== leg.srcDep && toM(leg.srcDepReal) > toM(leg.srcDep)) ||
+        (leg.cljArrReal && leg.cljArrReal !== leg.cljArr && toM(leg.cljArrReal) > toM(leg.cljArr))) {
+      legStatus = 'delayed';
+    }
+    const leftPair = pairAtoms(leg.srcDep, leg.srcDepReal, leg.cljArr, leg.cljArrReal, legStatus);
+    const leftCell = `
+      <div class="cell">
+        <div class="line time-sm">${leftPair}</div>
+        <div class="line sub">plat ${leg.cljPlatArr || "?"}</div>
       </div>
-    `);
+    `;
 
-    // Connections (CLJ->IMW), bullets
-    (leg.connections||[]).slice(0,2).forEach(c=>{
+    // Right cell: list connections, each two lines
+    const connLines = (leg.connections||[]).slice(0,2).map(c=>{
       const st = c.status === 'delayed' ? 'delayed' : (c.status === 'cancelled' ? 'cancelled' : 'on_time');
       const pair = (st==='cancelled')
         ? `${timeAtom(c.cljDep || '', null, 'cancelled')} CANCELLED`
         : pairAtoms(c.cljDep, c.cljDepReal, c.imwArr, c.imwArrReal, st);
 
-      // transfer mins (use realtime where available)
+      // transfer minutes (realtime where available)
       const cljArrRef = leg.cljArrReal || leg.cljArr;
       const mArr  = toM(cljArrRef);
       const mDep  = toM(c.cljDepReal || c.cljDep);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
       if (xfer!=null && xfer<0) xfer = null;
-
       const warn = (xfer!=null && xfer < 4);
       const minsText = xfer==null ? "?mins" : `${xfer}mins`;
-      const xferHTML = warn
-        ? `<span class="red">${minsText} transfer to plat ${c.cljPlat||"?"}!</span>`
-        : `<span class="muted">${minsText} transfer to plat ${c.cljPlat||"?"}</span>`;
+      const transferLine = warn
+        ? `<span class="red">${minsText} transfer – plat ${c.cljPlat||"?"}!</span>`
+        : `<span class="muted">${minsText} transfer – plat ${c.cljPlat||"?"}</span>`;
 
-      out.push(`
-        <div class="sub indent">
-          • ${pair} (CLJ ${xferHTML})
-        </div>
-      `);
-    });
+      return `
+        <div class="line">${transferLine}</div>
+        <div class="line indent time-sm">${pair}</div>
+      `;
+    }).join("");
 
-    out.push(`<div class="spacer"></div>`);
+    const rightCell = `<div class="cell">${connLines || `<div class="sub muted">No connections</div>`}</div>`;
+
+    rows.push(leftCell + rightCell);
   }
 
-  if(!data.legs?.length){
-    out.push(`<div class="sub muted">No CLJ connections ≥1 min after arrival.</div>`);
-  }
+  blocks.push(`<div class="xfer">${rows.join("")}</div>`);
 
-  el.innerHTML = out.join("");
+  el.innerHTML = blocks.join("");
 }
 async function loadBL(){
   try{
