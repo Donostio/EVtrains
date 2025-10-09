@@ -4,6 +4,13 @@
  *  - Direct SRC->IMW 07:25 (target date rolls after 09:00)
  *  - Next three SRC->CLJ strictly after 07:25 up to WINDOW_END,
  *    each with up to two CLJ->IMW connections departing >= 1 minute after CLJ arrival.
+ *
+ * Env:
+ *  - RTT_USERNAME, RTT_PASSWORD (required)
+ *  - LONDON_TZ (default "Europe/London")
+ *  - CUTOVER_LOCAL_TIME (default "09:00")
+ *  - WINDOW_START (default "0725")
+ *  - WINDOW_END   (default "0845")
  */
 
 const https = require('https');
@@ -16,11 +23,17 @@ if (!USER || !PASS) { console.error('Missing RTT credentials'); process.exit(1);
 const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
 const CUTOVER   = process.env.CUTOVER_LOCAL_TIME || '09:00';
 
-const SRC = 'SRC', CLJ='CLJ', IMW='IMW';
+const SRC='SRC', CLJ='CLJ', IMW='IMW';
 const WINDOW_START = process.env.WINDOW_START || '0725';
 const WINDOW_END   = process.env.WINDOW_END   || '0845';
 
-function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10); }
+// --- time/date helpers ---
+function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2,4),10); }
+function toMinutesAny(hhmmOrColon){
+  if (!hhmmOrColon) return NaN;
+  const s = hhmmOrColon.replace(':','');
+  return parseInt(s.slice(0,2),10)*60 + parseInt(s.slice(2,4),10);
+}
 function localYMD(tz){
   const parts = new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
   const y=parts.find(p=>p.type==='year').value, m=parts.find(p=>p.type==='month').value, d=parts.find(p=>p.type==='day').value;
@@ -29,10 +42,11 @@ function localYMD(tz){
 function localHM(tz){ return new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
 function isoShiftDays(iso, days){ const dt=new Date(iso+'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate()+days); return dt.toISOString().slice(0,10); }
 function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER){
-  const today = localYMD(tz), hm=localHM(tz);
-  return (toMinutes(hm)>=toMinutes(cut)) ? isoShiftDays(today,+1) : today;
+  const today = localYMD(tz), hm = localHM(tz);   // hm like "18:49"
+  return (toMinutesAny(hm) >= toMinutesAny(cut)) ? isoShiftDays(today,+1) : today;
 }
 
+// --- http helper ---
 function fetchJSON(url){
   const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
   return new Promise((resolve,reject)=>{
@@ -47,6 +61,7 @@ function fetchJSON(url){
   });
 }
 
+// --- helpers ---
 function statusFrom(o,d){
   if (o?.isCancelled || d?.isCancelled) return 'cancelled';
   const depLate = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture!==o.gbttBookedDeparture;
@@ -153,7 +168,7 @@ async function searchFromTo(from,to,datePath,hhmm){
             imwPlat: iw.platform || null
           });
         }
-      }catch(e){ /* swallow */ }
+      }catch(_e){ /* ignore connection search errors */ }
 
       legs.push({
         srcDep: o.gbttBookedDeparture || null,
