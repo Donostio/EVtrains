@@ -1,3 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Morning Board</title>
+<style>
+  :root {
+    --bg:#000;
+    --fg:#eaeaea;
+    --muted:#9aa0a6;
+    --green:#58d27a;
+    --amber:#ffa000;
+    --red:#ff3b30;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--fg);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:0;
+    height:100%;
+  }
+  .tile{
+    background:#000;
+    color:var(--fg);
+    border:none;
+    overflow:hidden;
+    display:grid;
+    place-items:center;
+  }
+  iframe{
+    width:100%;
+    height:100%;
+    border:none;
+    background:#000;
+  }
+  .route{
+    font-weight:800;
+    letter-spacing:.06em;
+    margin-bottom:.6rem;
+    font-size:clamp(14px,3vw,24px)
+  }
+  .time{
+    font-weight:800;
+    line-height:1.1;
+    font-size:clamp(28px,9vw,64px)
+  }
+  .sub{
+    font-size:clamp(12px,2.5vw,16px);
+    color:var(--muted);
+    margin-top:.35rem
+  }
+  .strike{text-decoration:line-through}
+  .green{color:var(--green)}
+  .amber{color:var(--amber)}
+  .red{color:var(--red)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="grid">
+    <!-- TOP LEFT: 07:44 STE→WIM -->
+    <section class="tile">
+      <div id="tl_app">Loading…</div>
+    </section>
+
+    <!-- TOP RIGHT: District Line iframe -->
+    <section class="tile">
+      <iframe
+        src="https://donostio.github.io/DLstatus/?embed=1&theme=dark"
+        loading="lazy"
+        referrerpolicy="no-referrer">
+      </iframe>
+    </section>
+
+    <!-- BOTTOM LEFT: SRC→CLJ→IMW -->
+    <section class="tile">
+      <div id="bl_app">Loading…</div>
+    </section>
+
+    <!-- BOTTOM RIGHT: Weather iframe -->
+    <section class="tile">
+      <iframe
+        src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark"
+        loading="lazy"
+        referrerpolicy="no-referrer">
+      </iframe>
+    </section>
+  </div>
+
 <script>
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
 
@@ -104,3 +201,5 @@ async function loadBL(){
 loadBL();
 setInterval(loadBL, 60000);
 </script>
+</body>
+</html>
