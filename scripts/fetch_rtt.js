@@ -41,7 +41,7 @@ function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER) {
   const now = new Date();
   const hm = new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(now);
   const todayISO = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
-  const today = new Date(todayISO); // local midnight in ISO yyyy-mm-dd in system tz
+  const today = new Date(todayISO); // local midnight (ISO yyyy-mm-dd) in system tz
   const base = (toMinutes(hm) >= toMinutes(cut)) ? new Date(today.getTime()+86400000) : today;
   return base.toISOString().slice(0,10);
 }
@@ -64,8 +64,8 @@ function fetchJSON(url) {
 
 function pickStatus(o, d) {
   if (o?.isCancelled || d?.isCancelled) return 'cancelled';
-  const depB = o?.bookedDeparture, depR = o?.realtimeDeparture;
-  const arrB = d?.bookedArrival,   arrR = d?.realtimeArrival;
+  const depB = o?.gbttBookedDeparture, depR = o?.realtimeDeparture;
+  const arrB = d?.gbttBookedArrival,   arrR = d?.realtimeArrival;
   const depLate = depB && depR && depR !== depB;
   const arrLate = arrB && arrR && arrR !== arrB;
   return (depLate || arrLate) ? 'delayed' : 'on_time';
@@ -73,8 +73,8 @@ function pickStatus(o, d) {
 
 (async ()=>{
   const iso = targetServiceDate();
-  const {y,m,d} = ymdParts(iso);
-  const datePath = `${y}/${m}/${d}`;
+  const {y, m, d: dd} = ymdParts(iso);      // <-- rename day to dd to avoid clash
+  const datePath = `${y}/${m}/${dd}`;
 
   const searchUrl = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${HHMM}`;
   let search;
@@ -88,7 +88,6 @@ function pickStatus(o, d) {
   }
 
   const svc = (search?.services || []).find(s => {
-    // We expect the booked GBTT to match HHMM at origin (sometimes in 'locationDetail')
     const bd = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
     return bd === HHMM;
   }) || (search?.services || [])[0];
@@ -109,10 +108,11 @@ function pickStatus(o, d) {
     console.error(err); process.exit(0);
   }
 
-  // Find origin and destination stops in the calling points array
+  // helper closes over 'detail'
   const findStop = (crs) => (detail?.locations || []).find(l => l.crs === crs);
+
   const o = findStop(ORIGIN) || {};
-  const d = findStop(DEST)   || {};
+  const dest = findStop(DEST) || {};        // <-- rename destination stop to 'dest'
 
   const out = {
     generatedAt: new Date().toISOString(),
@@ -135,18 +135,18 @@ function pickStatus(o, d) {
       cancelReasonShortText: o.cancelReasonShortText || null
     },
     destination: {
-      bookedArrival:   d.gbttBookedArrival   || null,
-      bookedDeparture: d.gbttBookedDeparture || null,
-      realtimeArrival: d.realtimeArrival     || null,
-      realtimeDeparture:d.realtimeDeparture  || null,
-      arrivalDelayMins: d.realtimeArrival && d.gbttBookedArrival ? (toMinutes(d.realtimeArrival)-toMinutes(d.gbttBookedArrival)) : null,
-      departureDelayMins:d.realtimeDeparture && d.gbttBookedDeparture ? (toMinutes(d.realtimeDeparture)-toMinutes(d.gbttBookedDeparture)) : null,
-      platform: d.platform || null,
-      isCancelled: !!d.isCancelled,
-      cancelReasonCode: d.cancelReasonCode || null,
-      cancelReasonShortText: d.cancelReasonShortText || null
+      bookedArrival:   dest.gbttBookedArrival   || null,
+      bookedDeparture: dest.gbttBookedDeparture || null,
+      realtimeArrival: dest.realtimeArrival     || null,
+      realtimeDeparture:dest.realtimeDeparture  || null,
+      arrivalDelayMins: dest.realtimeArrival && dest.gbttBookedArrival ? (toMinutes(dest.realtimeArrival)-toMinutes(dest.gbttBookedArrival)) : null,
+      departureDelayMins:dest.realtimeDeparture && dest.gbttBookedDeparture ? (toMinutes(dest.realtimeDeparture)-toMinutes(dest.gbttBookedDeparture)) : null,
+      platform: dest.platform || null,
+      isCancelled: !!dest.isCancelled,
+      cancelReasonCode: dest.cancelReasonCode || null,
+      cancelReasonShortText: dest.cancelReasonShortText || null
     },
-    status: pickStatus(o,d),
+    status: pickStatus(o, dest),
     searchUrl,
     detailUrl
   };
