@@ -2,6 +2,14 @@
 /**
  * status.json for STE -> WIM 07:44
  * Rolls to TOMORROW after 09:00 Europe/London (CUTOVER_LOCAL_TIME).
+ *
+ * Env:
+ *  - RTT_USERNAME, RTT_PASSWORD (required)
+ *  - ORIGIN_CRS (default "STE")
+ *  - DEST_CRS   (default "WIM")
+ *  - BOOKED_DEPART_HHMM (default "0744")
+ *  - LONDON_TZ (default "Europe/London")
+ *  - CUTOVER_LOCAL_TIME (default "09:00")
  */
 
 const https = require('https');
@@ -17,14 +25,16 @@ const HHMM   = process.env.BOOKED_DEPART_HHMM || '0744';
 const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
 const CUTOVER   = process.env.CUTOVER_LOCAL_TIME || '09:00';
 
-function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10); }
-function fmtHM(hhmm){ return hhmm?hhmm.slice(0,2)+':'+hhmm.slice(2):null; }
-
+// --- time/date helpers ---
+function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2,4),10); }
+function toMinutesAny(hhmmOrColon){
+  if (!hhmmOrColon) return NaN;
+  const s = hhmmOrColon.replace(':','');
+  return parseInt(s.slice(0,2),10)*60 + parseInt(s.slice(2,4),10);
+}
 function localYMD(tz){
-  const parts = new Intl.DateTimeFormat('en-GB',{timeZone:tz, year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(new Date());
-  const y = parts.find(p=>p.type==='year').value;
-  const m = parts.find(p=>p.type==='month').value;
-  const d = parts.find(p=>p.type==='day').value;
+  const parts = new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const y=parts.find(p=>p.type==='year').value, m=parts.find(p=>p.type==='month').value, d=parts.find(p=>p.type==='day').value;
   return `${y}-${m}-${d}`;
 }
 function localHM(tz){
@@ -36,11 +46,11 @@ function isoShiftDays(iso, days){
 }
 function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER){
   const today = localYMD(tz);
-  const hm = localHM(tz);
-  const base = (toMinutes(hm) >= toMinutes(cut)) ? isoShiftDays(today, +1) : today;
-  return base;
+  const hm = localHM(tz);                         // "HH:MM"
+  return (toMinutesAny(hm) >= toMinutesAny(cut)) ? isoShiftDays(today,+1) : today;
 }
 
+// --- http helper ---
 function fetchJSON(url){
   const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
   return new Promise((resolve,reject)=>{
@@ -55,6 +65,7 @@ function fetchJSON(url){
   });
 }
 
+// --- status calc ---
 function pickStatus(o,d){
   if (o?.isCancelled || d?.isCancelled) return 'cancelled';
   const depLate = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture!==o.gbttBookedDeparture;
@@ -67,7 +78,7 @@ function pickStatus(o,d){
   const [y,m,d] = iso.split('-'); const datePath = `${y}/${m}/${d}`;
   console.log(`[fetch_rtt] tz=${LONDON_TZ} hm=${localHM(LONDON_TZ)} cut=${CUTOVER} targetISO=${iso}`);
 
-  // SEARCH: fixed datePath + HHMM
+  // 1) SEARCH the fixed departure
   const searchUrl = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${HHMM}`;
   let search;
   try { search = await fetchJSON(searchUrl); }
@@ -83,6 +94,7 @@ function pickStatus(o,d){
     fs.writeFileSync('status.json', JSON.stringify(err,null,2)); console.warn(err); process.exit(0);
   }
 
+  // 2) DETAIL: prefer service.runDate; fallback to iso; retry ±1 day on 404
   const svcRunISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
 
   async function getDetailWithFallback(uid, primaryISO){
@@ -91,7 +103,6 @@ function pickStatus(o,d){
     catch(e){
       const msg = String(e);
       if (!msg.includes('HTTP 404')) throw e;
-      // try ±1 day
       for (const delta of [+1,-1]){
         try{ return await fetchJSON(mk(uid, isoShiftDays(primaryISO, delta))); }
         catch(_e){}
