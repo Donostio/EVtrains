@@ -1,82 +1,26 @@
 {
-  "generatedAt": "2025-10-09T06:13:04.843Z",
+  "generatedAt": "2025-10-09T07:08:01.729Z",
   "datePath": "2025/10/09",
   "window": {
-    "start": "0725",
+    "start": "0807",
     "end": "0845"
   },
   "direct": {
-    "status": "on_time",
+    "status": "early",
     "srcDep": "0725",
     "srcDepReal": "0725",
     "srcPlat": "2",
     "imwArr": "0743",
-    "imwArrReal": "0743",
+    "imwArrReal": "0742",
     "imwPlat": "2"
   },
   "legs": [
     {
-      "srcDep": "0739",
-      "srcDepReal": "0739",
+      "srcDep": "0809",
+      "srcDepReal": "0809",
       "srcPlat": "2",
-      "cljArr": "0750",
-      "cljArrReal": "0749",
-      "cljPlatArr": "14",
-      "connections": [
-        {
-          "status": "on_time",
-          "cljDep": "0757",
-          "cljDepReal": "0757",
-          "cljPlat": "1",
-          "imwArr": "0801",
-          "imwArrReal": "0801",
-          "imwPlat": "2"
-        },
-        {
-          "status": "on_time",
-          "cljDep": "0811",
-          "cljDepReal": "0811",
-          "cljPlat": "1",
-          "imwArr": "0815",
-          "imwArrReal": "0815",
-          "imwPlat": "2"
-        }
-      ]
-    },
-    {
-      "srcDep": "0749",
-      "srcDepReal": "0749",
-      "srcPlat": "2",
-      "cljArr": "0802",
-      "cljArrReal": "0801",
-      "cljPlatArr": "14",
-      "connections": [
-        {
-          "status": "on_time",
-          "cljDep": "0811",
-          "cljDepReal": "0811",
-          "cljPlat": "1",
-          "imwArr": "0815",
-          "imwArrReal": "0815",
-          "imwPlat": "2"
-        },
-        {
-          "status": "on_time",
-          "cljDep": "0822",
-          "cljDepReal": "0822",
-          "cljPlat": "1",
-          "imwArr": "0826",
-          "imwArrReal": "0826",
-          "imwPlat": "2"
-        }
-      ]
-    },
-    {
-      "srcDep": "0801",
-      "srcDepReal": "0801",
-      "srcPlat": "2",
-      "cljArr": "0811",
-      "cljArrReal": "0810",
+      "cljArr": "0820",
+      "cljArrReal": "0819",
       "cljPlatArr": "14",
       "connections": [
         {
@@ -95,6 +39,53 @@
           "cljPlat": "1",
           "imwArr": "0838",
           "imwArrReal": "0838",
+          "imwPlat": "2"
+        }
+      ]
+    },
+    {
+      "srcDep": "0820",
+      "srcDepReal": "0820",
+      "srcPlat": "2",
+      "cljArr": "0832",
+      "cljArrReal": "0831",
+      "cljPlatArr": "14",
+      "connections": [
+        {
+          "status": "on_time",
+          "cljDep": "0834",
+          "cljDepReal": "0834",
+          "cljPlat": "1",
+          "imwArr": "0838",
+          "imwArrReal": "0838",
+          "imwPlat": "2"
+        },
+        {
+          "status": "early",
+          "cljDep": "0838",
+          "cljDepReal": "0838",
+          "cljPlat": "16",
+          "imwArr": "0843",
+          "imwArrReal": "0842",
+          "imwPlat": "2"
+        }
+      ]
+    },
+    {
+      "srcDep": "0825",
+      "srcDepReal": "0825",
+      "srcPlat": "2",
+      "cljArr": "0835",
+      "cljArrReal": "0834",
+      "cljPlatArr": "16",
+      "connections": [
+        {
+          "status": "early",
+          "cljDep": "0838",
+          "cljDepReal": "0838",
+          "cljPlat": "16",
+          "imwArr": "0843",
+          "imwArrReal": "0842",
           "imwPlat": "2"
         }
       ]
