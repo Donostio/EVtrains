@@ -1,129 +1,106 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Morning Board</title>
-<style>
-  :root {
-    --bg:#000;
-    --fg:#eaeaea;
-    --muted:#9aa0a6;
-    --green:#58d27a;
-    --amber:#ffa000;
-    --red:#ff3b30;
-  }
-  html,body{height:100%}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--fg);
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    grid-template-rows:1fr 1fr;
-    gap:0;                /* remove tile gaps */
-    height:100%;
-  }
-  .tile{
-    background:#000;      /* full black */
-    color:var(--fg);
-    border:none;          /* no visible border */
-    overflow:hidden;
-    display:grid;
-    place-items:center;
-  }
-  iframe{
-    width:100%;
-    height:100%;
-    border:none;
-    background:#000;      /* match black background */
-  }
-  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vw,24px)}
-  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vw,64px)}
-  .sub{font-size:clamp(12px,2.5vw,16px);color:var(--muted);margin-top:.35rem}
-  .strike{text-decoration:line-through}
-  .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
-</style>
-</head>
-<body>
-  <div class="grid">
-    <!-- TOP LEFT: 07:44 STE→WIM -->
-    <section class="tile">
-      <div id="tl_app">Loading…</div>
-    </section>
-
-    <!-- TOP RIGHT: District Line iframe -->
-    <section class="tile">
-      <iframe
-        src="https://donostio.github.io/DLstatus/?embed=1&theme=dark"
-        loading="lazy"
-        referrerpolicy="no-referrer">
-      </iframe>
-    </section>
-
-    <!-- BOTTOM LEFT: SRC→CLJ→IMW -->
-    <section class="tile">
-      <div id="bl_app">Loading…</div>
-    </section>
-
-    <!-- BOTTOM RIGHT: Weather iframe -->
-    <section class="tile">
-      <iframe
-        src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark"
-        loading="lazy"
-        referrerpolicy="no-referrer">
-      </iframe>
-    </section>
-  </div>
-
 <script>
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
 
 /* ---------- TOP LEFT (STE→WIM) ---------- */
 function renderTL(s){
-  const el=document.getElementById('tl_app');
-  if(s?.error){ el.innerHTML=`<div class="time red">Error</div>`; return; }
-  const o=s.origin||{}, d=s.destination||{};
-  let status=s.status||"on_time"; if(o.isCancelled||d.isCancelled) status="cancelled";
-  let html="";
-  if(status==="cancelled"){
-    html=`<div class="time red"><span class="strike">${fmt(o.bookedDeparture||s.gbttBookedDeparture)}</span> CANCELLED</div>`;
-  }else if(status==="delayed"||status==="early"){
-    const depR=o.realtimeDeparture, depB=o.bookedDeparture||s.gbttBookedDeparture;
-    const arrR=d.realtimeArrival, arrB=d.bookedArrival;
-    html=`<div class="time amber">${depR?fmt(depR):fmt(depB)} <span class="muted">(${fmt(depB)})</span></div>`;
-  }else{
-    const show=o.realtimeDeparture||o.bookedDeparture||s.gbttBookedDeparture;
-    html=`<div class="time green">${fmt(show)}</div>`;
+  const el = document.getElementById('tl_app');
+  if(!s || s.error){
+    el.innerHTML = `<div class="route">STE-WIM</div><div class="time red">Error</div>`;
+    return;
   }
-  el.innerHTML=html;
+  const o = s.origin || {};
+  const d = s.destination || {};
+  let status = s.status || "on_time";
+  if (o.isCancelled || d.isCancelled) status = "cancelled";
+
+  const depBooked = o.bookedDeparture || s.gbttBookedDeparture || null;
+  const depReal   = o.realtimeDeparture || null;
+  const arrBooked = d.bookedArrival || null;
+  const arrReal   = d.realtimeArrival || null;
+
+  let timeHTML = "";
+  if (status === "cancelled"){
+    timeHTML = `<div class="time red"><span class="strike">${fmt(depBooked)}</span> CANCELLED</div>`;
+  } else if (status === "delayed" || status === "early"){
+    timeHTML = `<div class="time ${status==='delayed'?'amber':'green'}">
+      ${fmt(depReal || depBooked)}${depBooked ? ` <span class="muted">(${fmt(depBooked)})</span>` : ""}
+      ${(arrReal || arrBooked)
+          ? ` <span class="muted">-</span> ${fmt(arrReal || arrBooked)}${arrBooked ? ` <span class="muted">(${fmt(arrBooked)})</span>` : ""}`
+          : "" }
+    </div>`;
+  } else {
+    timeHTML = `<div class="time green">${fmt(depReal || depBooked)}</div>`;
+  }
+
+  const platHTML = (o.platform || d.platform)
+    ? `<div class="sub">Plat ${o.platform || "?"} · Plat ${d.platform || "?"}</div>`
+    : "";
+
+  el.innerHTML = `<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
 }
 async function loadTL(){
-  try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}
-  catch{renderTL({error:true});}
+  try{
+    const r = await fetch('./status.json?ts='+Date.now(), { cache:'no-store' });
+    renderTL(await r.json());
+  }catch{
+    renderTL({ error:true });
+  }
 }
-loadTL(); setInterval(loadTL,60000);
+loadTL();
+setInterval(loadTL, 60000);
 
 /* ---------- BOTTOM LEFT (SRC→CLJ→IMW) ---------- */
-function renderBL(x){
-  const el=document.getElementById('bl_app');
-  if(!x||x.error){el.innerHTML=`<div class="time red">No data</div>`;return;}
-  const best=x.options?.[0];
-  if(!best){el.innerHTML=`<div class="time muted">—</div>`;return;}
-  const color=best.status==='cancelled'?'red':best.status==='delayed'?'amber':'green';
-  el.innerHTML=`<div class="time ${color}">
-      ${fmt(best.srcDepReal||best.srcDep)}→${fmt(best.imwArrReal||best.imwArr)}
-    </div>
-    <div class="sub">Plat ${best.srcPlat||"?"}→${best.cljPlat||"?"} · xfer ${best.minTransfer}m</div>`;
+function renderBL(data){
+  const el = document.getElementById('bl_app');
+  if(!data || data.error){ el.innerHTML = `<div class="time red">No data</div>`; return; }
+
+  const pill = s => s==='cancelled'?'red':s==='delayed'?'amber':s==='early'?'green':'green';
+  const parts = [];
+
+  // Direct 07:25 -> 07:43
+  if(data.direct){
+    const d = data.direct;
+    const color = pill(d.status);
+    parts.push(`
+      <div class="time ${color}">
+        ${fmt(d.srcDepReal || d.srcDep)} <span class="muted">(${fmt(d.srcDep)})</span>
+        <span class="muted">-</span>
+        ${fmt(d.imwArrReal || d.imwArr)}${d.imwArr ? ` <span class="muted">(${fmt(d.imwArr)})</span>` : ""}
+      </div>
+      <div class="sub">SRC plat ${d.srcPlat||"?"} → IMW plat ${d.imwPlat||"?"}</div>
+    `);
+  } else {
+    parts.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
+  }
+
+  // Next legs with connections
+  for(const leg of (data.legs || [])){
+    parts.push(`
+      <div class="sub">
+        SRC ${fmt(leg.srcDepReal||leg.srcDep)} <span class="muted">(${fmt(leg.srcDep)})</span>
+        → CLJ ${fmt(leg.cljArrReal||leg.cljArr)}
+        · SRC plat ${leg.srcPlat||"?"}${leg.cljPlatArr?` · CLJ arr plat ${leg.cljPlatArr}`:""}
+      </div>
+    `);
+    parts.push((leg.connections||[]).slice(0,2).map(c=>{
+      const ccol = pill(c.status);
+      return `<div class="sub">• <span class="${ccol}">${fmt(c.cljDepReal||c.cljDep)}→${fmt(c.imwArrReal||c.imwArr)}</span> (CLJ plat ${c.cljPlat||"?"} → IMW plat ${c.imwPlat||"?"})</div>`;
+    }).join(""));
+  }
+  if(!data.legs?.length){
+    parts.push(`<div class="sub muted">No CLJ connections ≥1 min after arrival.</div>`);
+  }
+
+  el.innerHTML = parts.join("");
 }
 async function loadBL(){
-  try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}
-  catch{renderBL({error:true});}
+  try{
+    const r = await fetch('./xfer.json?ts='+Date.now(), { cache:'no-store' });
+    renderBL(await r.json());
+  }catch{
+    renderBL({ error:true });
+  }
 }
-loadBL(); setInterval(loadBL,60000);
+loadBL();
+setInterval(loadBL, 60000);
 </script>
-</body>
-</html>
