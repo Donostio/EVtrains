@@ -68,7 +68,7 @@
   /* TL centering */
   #tl_app{ text-align:center; }
 
-  /* BL 40% smaller variants + indent */
+  /* BL 40% smaller variants + indent + spacer */
   .route-sm{
     font-weight:800;
     letter-spacing:.06em;
@@ -81,6 +81,7 @@
     font-size: clamp(17px, 5.4vw, 38px);
   }
   .indent{ padding-left: 2.25em; }
+  .spacer{ height: clamp(8px, 2.5vw, 16px); }
 </style>
 </head>
 <body>
@@ -117,6 +118,19 @@
 <script>
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
 
+/* helpers for your new rules */
+function timeDisplay(booked, real, status){
+  // if delayed and realtime is different → "(booked) realtime"
+  if(status === 'delayed' && real && real !== booked){
+    return `<span class="muted">(${fmt(booked)})</span> ${fmt(real)}`;
+  }
+  // else (on_time or early) → booked only
+  return `${fmt(booked)}`;
+}
+function pairDisplay(depBooked, depReal, arrBooked, arrReal, status){
+  return `${timeDisplay(depBooked, depReal, status)} <span class="muted">-</span> ${timeDisplay(arrBooked, arrReal, status)}`;
+}
+
 /* ---------- TOP LEFT (STE→WIM) ---------- */
 function renderTL(s){
   const el = document.getElementById('tl_app');
@@ -126,33 +140,22 @@ function renderTL(s){
   }
   const o = s.origin || {};
   const d = s.destination || {};
-  let status = s.status || "on_time";
-  if (o.isCancelled || d.isCancelled) status = "cancelled";
+  // treat 'early' visually like on_time per your instruction
+  let status = s.status === 'delayed' ? 'delayed' : 'on_time';
 
   const depBooked = o.bookedDeparture || s.gbttBookedDeparture || null;
   const depReal   = o.realtimeDeparture || null;
   const arrBooked = d.bookedArrival || null;
   const arrReal   = d.realtimeArrival || null;
 
-  let timeHTML = "";
-  if (status === "cancelled"){
-    timeHTML = `<div class="time red"><span class="strike">${fmt(depBooked)}</span> CANCELLED</div>`;
-  } else if (status === "delayed" || status === "early"){
-    timeHTML = `<div class="time ${status==='delayed'?'amber':'green'}">
-      ${fmt(depReal || depBooked)}${depBooked ? ` <span class="muted">(${fmt(depBooked)})</span>` : ""}
-      ${(arrReal || arrBooked)
-          ? ` <span class="muted">-</span> ${fmt(arrReal || arrBooked)}${arrBooked ? ` <span class="muted">(${fmt(arrBooked)})</span>` : ""}`
-          : "" }
-    </div>`;
-  } else {
-    timeHTML = `<div class="time green">${fmt(depReal || depBooked)}</div>`;
-  }
+  const line = pairDisplay(depBooked, depReal, arrBooked, arrReal, status);
+  const colorCls = status === 'delayed' ? 'red' : 'green';
 
   const platHTML = (o.platform || d.platform)
     ? `<div class="sub">Plat ${o.platform || "?"} · Plat ${d.platform || "?"}</div>`
     : "";
 
-  el.innerHTML = `<div class="route">STE-WIM</div>${timeHTML}${platHTML}`;
+  el.innerHTML = `<div class="route">STE-WIM</div><div class="time ${colorCls}">${line}</div>${platHTML}`;
 }
 async function loadTL(){
   try{
@@ -170,62 +173,77 @@ function renderBL(data){
   const el = document.getElementById('bl_app');
   if(!data || data.error){ el.innerHTML = `<div class="time-sm red">No data</div>`; return; }
 
-  const pill = s => s==='cancelled'?'red':s==='delayed'?'amber':s==='early'?'green':'green';
   const toM = t => t ? (parseInt(t.slice(0,2))*60 + parseInt(t.slice(2))) : null;
 
   const out = [];
 
-  // Direct: "SRC-IMW (direct)" — same header style as STE-WIM but 40% smaller
+  // ----- Direct block -----
   out.push(`<div class="route-sm">SRC-IMW (direct)</div>`);
   if (data.direct){
-    const d = data.direct;
-    const color = pill(d.status);
-    const dep = d.status==='on_time' ? fmt(d.srcDepReal||d.srcDep)
-                                     : `${fmt(d.srcDepReal||d.srcDep)} <span class="muted">(${fmt(d.srcDep)})</span>`;
-    const arr = d.status==='on_time' ? fmt(d.imwArrReal||d.imwArr)
-                                     : `${fmt(d.imwArrReal||d.imwArr)}${d.imwArr?` <span class="muted">(${fmt(d.imwArr)})</span>`:""}`;
+    // treat 'early' visually like on_time
+    const st = data.direct.status === 'delayed' ? 'delayed' : 'on_time';
+    const color = st === 'delayed' ? 'red' : 'green';
+    const dep = timeDisplay(data.direct.srcDep, data.direct.srcDepReal, st);
+    const arr = timeDisplay(data.direct.imwArr, data.direct.imwArrReal, st);
 
     out.push(`<div class="time-sm ${color}">${dep} <span class="muted">-</span> ${arr}</div>`);
-    out.push(`<div class="sub">Plat ${d.srcPlat||"?"} · Plat ${d.imwPlat||"?"}</div>`);
+    out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
   } else {
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
 
-  // Legs: "SRC - CLJ 07:39 - 07:49 (arr. plat 14)" + bullets
+  // Spacer line
+  out.push(`<div class="spacer"></div>`);
+
+  // ----- Legs + connection bullets -----
   for(const leg of (data.legs||[])){
-    const cljArr = leg.cljArrReal || leg.cljArr;
-    const srcDep = leg.srcDepReal || leg.srcDep;
-    const arrPlat = leg.cljPlatArr || "?";
+    const srcDep = leg.srcDep;
+    const srcDepReal = leg.srcDepReal;
+    const cljArr = leg.cljArr;
+    const cljArrReal = leg.cljArrReal;
+
+    // leg status: delayed if either leg appears late; otherwise on_time/early → show booked
+    const legStatus = 'on_time'; // conservative: headers are schedule-focused
+    const headerLine = pairDisplay(srcDep, srcDepReal, cljArr, cljArrReal, legStatus);
 
     out.push(`
       <div class="route-sm">
-        SRC - CLJ ${fmt(srcDep)} - ${fmt(cljArr)} <span class="muted">(arr. plat ${arrPlat})</span>
+        SRC - CLJ ${headerLine} <span class="muted">(arr. plat ${leg.cljPlatArr || "?"})</span>
       </div>
     `);
 
+    // Up to two connections, indented
     (leg.connections||[]).slice(0,2).forEach(c=>{
-      const depCLJ = c.cljDepReal || c.cljDep;
-      const arrIMW = c.imwArrReal || c.imwArr;
+      const depCLJBooked = c.cljDep || null;
+      const depCLJReal   = c.cljDepReal || null;
+      const arrIMWBooked = c.imwArr || null;
+      const arrIMWReal   = c.imwArrReal || null;
+
+      const connStatus = c.status === 'delayed' ? 'delayed' : 'on_time';
+      const pair = pairDisplay(depCLJBooked, depCLJReal, arrIMWBooked, arrIMWReal, connStatus);
 
       // transfer mins (use realtime where available)
-      const mArr  = toM(cljArr);
-      const mDep  = toM(depCLJ);
+      const cljArrRef = (cljArrReal || cljArr);
+      const mArr  = toM(cljArrRef);
+      const mDep  = toM(depCLJReal || depCLJBooked);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
       if (xfer!=null && xfer<0) xfer = null;
 
       const warn = (xfer!=null && xfer < 4);
-      const xferSpan = xfer==null
-        ? `<span class="muted">&lt;?&gt;mins transfer</span>`
-        : `<span class="${warn?'red':'muted'}">&lt;${xfer}&gt;mins transfer${warn?'!':''}</span>`;
+      const minsText = xfer==null ? "?mins" : `${xfer}mins`;
+      const xferHTML = warn
+        ? `<span class="red">${minsText} transfer to plat ${c.cljPlat||"?"}!</span>`
+        : `<span class="muted">${minsText} transfer to plat ${c.cljPlat||"?"}</span>`;
 
       out.push(`
         <div class="sub indent">
-          • ${fmt(depCLJ)}→${fmt(arrIMW)}
-          <span class="muted">(CLJ </span>${xferSpan}
-          <span class="muted"> plat &lt;${arrPlat}&gt; - &lt;${c.cljPlat||"?"}&gt;)</span>
+          • ${pair} (CLJ ${xferHTML})
         </div>
       `);
     });
+
+    // Spacer between leg groups
+    out.push(`<div class="spacer"></div>`);
   }
 
   if(!data.legs?.length){
