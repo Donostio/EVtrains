@@ -21,6 +21,7 @@ jobs:
       DEST_CRS: "WIM"
       BOOKED_DEPART_HHMM: "0744"
       LONDON_TZ: "Europe/London"
+      CUTOVER_LOCAL_TIME: "09:00"   # <-- new
       START_LOCAL_TIME: "06:30"
       END_LOCAL_TIME: "08:00"
     steps:
