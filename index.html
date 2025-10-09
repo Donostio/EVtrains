@@ -14,35 +14,13 @@
     --red:#ff5252;     /* brighter red */
   }
   html,body{height:100%}
-  body{
-    margin:0;
-    background:var(--bg);
-    color:var(--fg);
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    grid-template-rows:1fr 1fr;
-    gap:0;
-    height:100%;
-  }
-  .tile{
-    background:#000;
-    color:var(--fg);
-    border:none;
-    overflow:hidden;
-    display:grid;
-    place-items:center;
-  }
-  iframe{
-    width:100%;
-    height:100%;
-    border:none;
-    background:#000;
-  }
+  body{ margin:0; background:var(--bg); color:var(--fg);
+        font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .grid{ display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:0; height:100%; }
+  .tile{ background:#000; color:var(--fg); border:none; overflow:hidden; display:grid; place-items:center; }
+  iframe{ width:100%; height:100%; border:none; background:#000; }
 
-  /* Top-left (unchanged) */
+  /* Top-left */
   #tl_app{ text-align:center; }
   .route{ font-weight:800; letter-spacing:.06em; margin-bottom:.6rem; font-size:clamp(14px,3vw,24px); }
   .time{ font-weight:800; line-height:1.1; font-size:clamp(28px,9vw,64px); white-space:nowrap; }
@@ -55,12 +33,13 @@
   #bl_app{ width:92%; margin:0 auto; }
 
   /* Titles (white, centered) */
-  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em; font-size:clamp(12px,2.2vw,18px); margin:0; text-align:center; }
+  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em;
+          font-size:clamp(12px,2.2vw,18px); margin:0; text-align:center; }
 
   /* Compact times */
   .time-xs{ font-weight:800; line-height:1.1; font-size:clamp(14px,3.2vw,24px); white-space:nowrap; }
 
-  /* Direct block pinned top with a big gap below */
+  /* Direct block */
   .direct-block{ text-align:center; width:100%; }
   .direct-line{ margin-top:.25rem; }
   .direct-gap{ height:clamp(14px,2.4vw,24px); }
@@ -69,40 +48,48 @@
   .xfer-wrap{ width:100%; max-width:980px; display:grid; grid-template-columns:1fr; row-gap:10px; }
   .xfer-header{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1.15fr; /* transfer closer to CLJ-IMW */
-    column-gap: 16px;                        /* tighter gaps */
+    grid-template-columns: 1fr 0.85fr 1.2fr; /* transfer closer to CLJ-IMW */
+    column-gap: 12px;
     align-items:end;
   }
-  .xfer-header .title{ margin-bottom:.08rem; } /* ~half previous gap */
+  .xfer-header .title{ margin-bottom:.05rem; }
+  .xfer-header .title.right{ text-align:left; }  /* CLJ-IMW title aligned over the times */
 
   .xrow{
     display:grid;
-    grid-template-columns: 1fr 0.9fr 1.15fr;  /* match header */
-    column-gap: 16px;                         /* tighter row gap */
+    grid-template-columns: 1fr 0.85fr 1.2fr;  /* match header */
+    column-gap: 12px;
     align-items:center;
     padding:6px 0;
   }
 
-  /* Left column: centered, nudged slightly down so it sits “between” the two pairs */
+  /* Left column: SRC-CLJ — centered, platform on its own line BELOW the times */
   .left-cell{
     display:flex; flex-direction:column; align-items:center; text-align:center;
     align-self:center; transform: translateY(4px);
   }
 
-  /* Middle & right columns: each pair on its own line */
-  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.7rem; }
+  /* Middle & Right columns: paired rows (transfer | time) that always stick together */
+  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.6rem; }
 
-  /* Transfer text styles */
-  .trans-ok{ color:var(--fg); }   /* white for readability */
-  .trans-warn{ color:var(--red); }/* bright red when <4 mins */
+  .pair{
+    display:grid;
+    grid-template-columns: 1fr max-content;  /* transfer | times */
+    align-items:baseline;
+    column-gap: 10px;                         /* keep them on same row */
+  }
+
+  /* Transfer styles: larger, arrow, warning red; otherwise white */
+  .transfer{ font-size: clamp(12px,2.6vw,18px); }
+  .trans-ok{ color:var(--fg); }
+  .trans-warn{ color:var(--red); }
+  .transfer .arrow{ margin-left:.35em; }
 </style>
 </head>
 <body>
   <div class="grid">
     <!-- TOP LEFT: STE→WIM -->
-    <section class="tile">
-      <div id="tl_app">Loading…</div>
-    </section>
+    <section class="tile"><div id="tl_app">Loading…</div></section>
 
     <!-- TOP RIGHT: District Line iframe -->
     <section class="tile">
@@ -110,9 +97,7 @@
     </section>
 
     <!-- BOTTOM LEFT: SRC→CLJ→IMW -->
-    <section class="tile">
-      <div id="bl_app">Loading…</div>
-    </section>
+    <section class="tile"><div id="bl_app">Loading…</div></section>
 
     <!-- BOTTOM RIGHT: Weather iframe -->
     <section class="tile">
@@ -207,7 +192,7 @@ function renderBL(data){
       <div class="xfer-header">
         <div class="title">SRC-CLJ</div>
         <div class="title">Transfer</div>
-        <div class="title">CLJ-IMW</div>
+        <div class="title right">CLJ-IMW</div>
       </div>
   `);
 
@@ -230,17 +215,16 @@ function renderBL(data){
       const mDep  = toM(c.cljDepReal || c.cljDep);
       let xfer = (mArr!=null && mDep!=null) ? (mDep - mArr) : null;
       if (xfer!=null && xfer<0) xfer = null;
-
       const warn = (xfer!=null && xfer < 4);
-      const minsText = xfer==null ? "?mins" : `${xfer}mins`;
       const cls = warn ? 'trans-warn' : 'trans-ok';
-      const transferText = `<span class="${cls}">${minsText} transfer – plat ${c.cljPlat||"?"}${warn?'!':''}</span>`;
+      const minsText = xfer==null ? "?mins" : `${xfer}mins`;
+      const transferText = `<span class="transfer ${cls}">${minsText} transfer – plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
 
       return { transferText, pair };
     });
 
-    const midCol = conns.map(p=>`<div class="pair-line"><span class="sub" style="margin:0">${p.transferText}</span></div>`).join("");
-    const rightCol = conns.map(p=>`<div class="pair-line"><span class="time-xs">${p.pair}</span></div>`).join("");
+    const midCol = conns.map(p=>`<div class="pair"><div>${p.transferText}</div><div></div></div>`).join("");
+    const rightCol = conns.map(p=>`<div class="pair"><div></div><div class="time-xs">${p.pair}</div></div>`).join("");
 
     blocks.push(`
       <div class="xrow">
@@ -248,8 +232,8 @@ function renderBL(data){
           <div class="time-xs">${leftPair}</div>
           <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
         </div>
-        <div class="mid-cell">${midCol || `<div class="sub muted">—</div>`}</div>
-        <div class="right-cell">${rightCol || `<div class="sub muted">—</div>`}</div>
+        <div class="mid-cell">${midCol || `<div class="transfer trans-ok">—</div>`}</div>
+        <div class="right-cell">${rightCol || `<div class="time-xs muted">—</div>`}</div>
       </div>
     `);
   }
