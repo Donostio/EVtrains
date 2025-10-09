@@ -5,12 +5,7 @@
  *  - Next three SRC->CLJ strictly after 07:25 up to WINDOW_END,
  *    each with up to two CLJ->IMW connections departing >= 1 minute after CLJ arrival.
  *
- * Env:
- *  - RTT_USERNAME, RTT_PASSWORD (required)
- *  - LONDON_TZ (default "Europe/London")
- *  - CUTOVER_LOCAL_TIME (default "09:00")
- *  - WINDOW_START (default "0725")
- *  - WINDOW_END   (default "0845")
+ * Prefers RTT detail by RID; falls back to UID + date with ±1 day retry.
  */
 
 const https = require('https');
@@ -42,7 +37,7 @@ function localYMD(tz){
 function localHM(tz){ return new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
 function isoShiftDays(iso, days){ const dt=new Date(iso+'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate()+days); return dt.toISOString().slice(0,10); }
 function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER){
-  const today = localYMD(tz), hm = localHM(tz);   // hm like "18:49"
+  const today = localYMD(tz), hm = localHM(tz);
   return (toMinutesAny(hm) >= toMinutesAny(cut)) ? isoShiftDays(today,+1) : today;
 }
 
@@ -70,14 +65,20 @@ function statusFrom(o,d){
 }
 function findStop(detail, crs){ return (detail?.locations||[]).find(l=>l.crs===crs) || {}; }
 
-async function getDetailWithFallback(uid, primaryISO){
+async function getDetailByRidOrUid(svc, fallbackISO){
+  const rid = svc.rid || null;
+  if (rid){
+    try { return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${rid}`); }
+    catch(e){ /* fall back below */ }
+  }
+  const runISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : fallbackISO;
   const mk = (u,d)=>`https://api.rtt.io/api/v1/json/service/${u}/${d}`;
-  try{ return await fetchJSON(mk(uid, primaryISO)); }
+  try{ return await fetchJSON(mk(svc.serviceUid, runISO)); }
   catch(e){
     const msg = String(e);
     if (!msg.includes('HTTP 404')) throw e;
     for (const delta of [+1,-1]){
-      try{ return await fetchJSON(mk(uid, isoShiftDays(primaryISO, delta))); }
+      try{ return await fetchJSON(mk(svc.serviceUid, isoShiftDays(runISO, delta))); }
       catch(_e){}
     }
     throw e;
@@ -103,8 +104,7 @@ async function searchFromTo(from,to,datePath,hhmm){
     const directServices = await searchFromTo(SRC, IMW, datePath, WINDOW_START);
     let directSvc = directServices.find(s => (s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture)===WINDOW_START) || directServices[0];
     if (directSvc?.serviceUid){
-      const runISO = (directSvc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(directSvc.runDate)) ? directSvc.runDate : iso;
-      const detail = await getDetailWithFallback(directSvc.serviceUid, runISO);
+      const detail = await getDetailByRidOrUid(directSvc, iso);
       const o = findStop(detail, SRC), iw = findStop(detail, IMW);
       out.direct = {
         status: statusFrom(o, iw),
@@ -129,9 +129,9 @@ async function searchFromTo(from,to,datePath,hhmm){
     const legs=[];
     for (const svc of after){
       if (!svc?.serviceUid) continue;
-      const runISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
+
       let det;
-      try { det = await getDetailWithFallback(svc.serviceUid, runISO); }
+      try { det = await getDetailByRidOrUid(svc, iso); }
       catch(e){ console.warn('First-leg detail 404, skipping:', String(e)); continue; }
 
       const o = findStop(det, SRC);
@@ -147,9 +147,9 @@ async function searchFromTo(from,to,datePath,hhmm){
         for (const c of cand){
           if (conns.length>=2) break;
           if (!c?.serviceUid) continue;
-          const run2 = (c.runDate && /^\d{4}-\d{2}-\d{2}$/.test(c.runDate)) ? c.runDate : iso;
+
           let cd;
-          try { cd = await getDetailWithFallback(c.serviceUid, run2); }
+          try { cd = await getDetailByRidOrUid(c, iso); }
           catch(e){ continue; }
 
           const cj = findStop(cd, CLJ), iw = findStop(cd, IMW);
