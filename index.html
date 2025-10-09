@@ -12,104 +12,133 @@
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 
-  .grid{
-    display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:0; height:100%;
+  /* Center the whole 2×2 board and reduce the middle gap */
+  .board{
+    height:100%;
+    max-width:1320px;              /* pulls tiles toward the center on wide screens */
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:24px;                      /* consistent spacing between tiles */
+    padding:24px;
+    box-sizing:border-box;
   }
   .tile{
-    background:#000; color:var(--fg);
-    display:grid; place-items:center; overflow:hidden;
+    background:#000;               /* true black tiles */
+    color:var(--fg);
+    display:grid;
+    place-items:center;
+    overflow:hidden;
+    border-radius:0;               /* no borders */
   }
-  /* pull inner content toward centre (less empty middle) */
-  .tile.left  > .inner{ justify-self:end; }
-  .tile.right > .inner{ justify-self:start; }
+  .inner{ width:100%; height:100%; display:grid; place-items:center; }
 
   iframe{ width:100%; height:100%; border:none; background:#000; }
 
-  /* TL typography (use vmin so it scales in landscape too) */
-  #tl_app{text-align:center}
-  .route{font-weight:800;letter-spacing:.06em;margin-bottom:.6rem;font-size:clamp(14px,3vmin,24px)}
-  .time{font-weight:800;line-height:1.1;font-size:clamp(28px,9vmin,64px);white-space:nowrap}
-  .sub{font-size:clamp(12px,2.5vmin,16px);color:var(--muted);margin-top:.35rem}
-  .small{font-size:.5em}
+  /* ---------- TOP-LEFT (STE→WIM) ---------- */
+  #tl_app{ text-align:center }
+  .route{ font-weight:800; letter-spacing:.06em; margin-bottom:.5rem;
+          font-size:clamp(14px,2.2vw,22px) }
+  .time{  font-weight:800; line-height:1.1; white-space:nowrap;
+          font-size:clamp(32px,6vw,72px) }
+  .sub{   font-size:clamp(12px,1.6vw,16px); color:var(--muted); margin-top:.35rem }
+  .small{ font-size:.5em }
   .strike{text-decoration:line-through}
   .green{color:var(--green)} .amber{color:var(--amber)} .red{color:var(--red)} .muted{color:var(--muted)}
 
-  /* BL container centred & nudged inward */
-  #bl_app{ width:92%; margin:0 auto; }
+  /* ---------- BOTTOM-LEFT (SRC→CLJ→IMW) ---------- */
+  #bl_app{ width:min(95%, 980px); margin:0 auto; }
 
-  .title{ color:var(--fg); font-weight:800; letter-spacing:.06em; font-size:clamp(12px,2.2vmin,18px); margin:0; text-align:center }
-  .title.right{text-align:left}
+  .title{
+    color:var(--fg); font-weight:800; letter-spacing:.06em; text-align:center;
+    font-size:clamp(12px,1.6vw,18px); margin:0;
+  }
+  .time-xs{
+    font-weight:800; line-height:1.1; white-space:nowrap;
+    font-size:clamp(14px,1.9vw,24px);
+  }
 
-  .time-xs{ font-weight:800; line-height:1.1; font-size:clamp(14px,3vmin,24px); white-space:nowrap }
+  .direct-block{ text-align:center; width:100% }
+  .direct-line{ margin-top:.25rem }
+  .direct-gap{ height:clamp(12px,1.5vw,20px) }
 
-  .direct-block{text-align:center;width:100%}
-  .direct-line{margin-top:.25rem}
-  .direct-gap{height:clamp(14px,2.4vmin,24px)}
-
-  /* 3-col section (SRC-CLJ | Transfer | CLJ-IMW) */
-  .xfer-wrap{width:100%;max-width:980px;display:grid;grid-template-columns:1fr;row-gap:10px}
+  /* 3-column “table” */
+  .xfer-wrap{ width:100%; display:grid; grid-template-columns:1fr; row-gap:10px }
   .xfer-header{
     display:grid;
-    grid-template-columns:1fr 0.9fr 1.05fr; /* Transfer close to CLJ-IMW */
-    column-gap:8px; align-items:end;
+    grid-template-columns: 1fr 0.9fr 1fr;   /* transfer sits close to times */
+    column-gap:16px;
+    align-items:end;
   }
-  .xfer-header .title{margin-bottom:.05rem}
-
+  .xfer-header .title{ margin-bottom:.2rem }
   .xrow{
     display:grid;
-    grid-template-columns:1fr 0.9fr 1.05fr;
-    column-gap:8px; align-items:center; padding:6px 0;
+    grid-template-columns: 1fr 0.9fr 1fr;   /* match header */
+    column-gap:16px;
+    align-items:center;
+    padding:6px 0;
   }
 
-  .left-cell{
-    display:flex; flex-direction:column; align-items:center; text-align:center;
-    align-self:center; transform:translateY(4px);
+  /* Left column: times then platform (on its own line) */
+  .left-cell{ display:flex; flex-direction:column; align-items:center; text-align:center }
+
+  /* Middle & Right columns: maintain pair-on-one-line behaviour */
+  .mid-cell, .right-cell{ display:flex; flex-direction:column; gap:.7rem }
+  .right-cell{ align-items:flex-start; text-align:left }
+
+  /* One connection row: transfer | times, kept together */
+  .pair{
+    display:grid;
+    grid-template-columns: max-content max-content;
+    align-items:baseline;
+    column-gap:12px;
+    white-space:nowrap;        /* prevent split across multiple lines */
   }
-  .mid-cell,.right-cell{ display:flex; flex-direction:column; gap:.6rem }
-  .right-cell{ align-items:flex-start; text-align:left } /* left-align times under header */
-
-  /* a single connected pair row (transfer | times) */
-  .pair{ display:grid; grid-template-columns:auto max-content; align-items:baseline; column-gap:10px }
-
-  .transfer{ font-size:clamp(12px,2.6vmin,18px) }
+  .transfer{
+    font-size:clamp(12px,1.7vw,18px);
+    word-break:keep-all;
+  }
   .trans-ok{ color:var(--fg) }
   .trans-warn{ color:var(--red) }
   .transfer .arrow{ margin-left:.35em }
 
-  /* ——— Mobile portrait tweaks ——— */
-  @media (max-width: 768px) and (orientation: portrait){
-    .mid-cell,.right-cell{ gap:1rem }            /* more space between connection pairs */
-    .pair{ column-gap:12px }                      /* push times a little further from transfer */
-    .grid{ grid-template-rows:1fr 1fr }           /* keep 2x2 layout */
+  /* ---------- Responsive tweaks ---------- */
+  @media (max-width: 900px){
+    .board{ gap:16px; padding:16px }
+    .xrow{ column-gap:12px }
+    .pair{ column-gap:10px }
+  }
+  @media (max-width: 700px){
+    .board{ gap:12px; padding:12px }
+    .xfer-header .title{ margin-bottom:.1rem }
+    .mid-cell, .right-cell{ gap:.9rem }   /* more vertical breathing room between pairs */
   }
 
-  /* ——— Mobile landscape tweaks ——— */
+  /* Landscape phones: reduce type a bit more to avoid overflow, no iframe scaling */
   @media (max-height: 480px) and (orientation: landscape){
-    .route{font-size:clamp(12px,2.4vmin,20px)}
-    .time{font-size:clamp(22px,7.2vmin,54px)}
-    .title{font-size:clamp(11px,1.9vmin,16px)}
-    .time-xs{font-size:clamp(12px,2.6vmin,20px)}
-    .sub{font-size:clamp(10px,2vmin,14px)}
-    /* scale iframes a touch to avoid scrollbars from third-party pages */
-    .tile.right iframe{ transform:scale(.92); transform-origin:top left; width:109%; height:109%; }
+    .time{ font-size:clamp(26px,5.2vw,60px) }
+    .time-xs{ font-size:clamp(13px,1.7vw,22px) }
+    .title{ font-size:clamp(11px,1.4vw,16px) }
+    .sub{ font-size:clamp(10px,1.3vw,14px) }
   }
 </style>
 </head>
 <body>
-  <div class="grid">
+  <div class="board">
     <!-- TOP LEFT -->
-    <section class="tile left"><div class="inner" id="tl_app">Loading…</div></section>
+    <section class="tile"><div class="inner" id="tl_app">Loading…</div></section>
 
     <!-- TOP RIGHT -->
-    <section class="tile right"><div class="inner">
+    <section class="tile"><div class="inner">
       <iframe src="https://donostio.github.io/DLstatus/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
     </div></section>
 
     <!-- BOTTOM LEFT -->
-    <section class="tile left"><div class="inner" id="bl_app">Loading…</div></section>
+    <section class="tile"><div class="inner" id="bl_app">Loading…</div></section>
 
     <!-- BOTTOM RIGHT -->
-    <section class="tile right"><div class="inner">
+    <section class="tile"><div class="inner">
       <iframe src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
     </div></section>
   </div>
@@ -136,7 +165,6 @@ function renderTL(s){
   const status=(o.isCancelled||d.isCancelled)?'cancelled':(s.status==='delayed'?'delayed':'on_time');
   const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
   const arrB=d.bookedArrival, arrR=d.realtimeArrival;
-
   const content = status==='cancelled'
     ? `<div class="time red">${timeAtom(depB,null,'cancelled')} CANCELLED</div>`
     : `<div class="time">${pairAtoms(depB,depR,arrB,arrR,status)}</div>`;
@@ -154,16 +182,15 @@ function renderBL(data){
   const toM=t=>t?(+t.slice(0,2))*60+(+t.slice(2)):null;
   const out=[];
 
-  /* Direct at top */
+  /* Direct */
   const platInline=data.direct?` <span class="muted small">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</span>`:"";
   out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)${platInline}</div>`);
   if(data.direct){
     const st=data.direct.status==='delayed'?'delayed':(data.direct.status==='cancelled'?'cancelled':'on_time');
-    if(st==='cancelled'){
-      out.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`);
-    }else{
-      out.push(`<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`);
-    }
+    out.push(st==='cancelled'
+      ? `<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`
+      : `<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`
+    );
   }else{
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
@@ -175,15 +202,15 @@ function renderBL(data){
       <div class="xfer-header">
         <div class="title">SRC-CLJ</div>
         <div class="title">Transfer</div>
-        <div class="title right">CLJ-IMW</div>
+        <div class="title">CLJ-IMW</div>
       </div>
   `);
 
   /* Rows */
   for(const leg of (data.legs||[])){
     let legStatus='on_time';
-    const srcLate=leg.srcDepReal && toM(leg.srcDepReal)>toM(leg.srcDep);
-    const arrLate=leg.cljArrReal && toM(leg.cljArrReal)>toM(leg.cljArr);
+    const srcLate=leg.srcDepReal&&toM(leg.srcDepReal)>toM(leg.srcDep);
+    const arrLate=leg.cljArrReal&&toM(leg.cljArrReal)>toM(leg.cljArr);
     if(srcLate||arrLate) legStatus='delayed';
 
     const leftPair=pairAtoms(leg.srcDep,leg.srcDepReal,leg.cljArr,leg.cljArrReal,legStatus);
@@ -197,7 +224,7 @@ function renderBL(data){
       const mArr=toM(leg.cljArrReal||leg.cljArr), mDep=toM(c.cljDepReal||c.cljDep);
       let xfer=(mArr!=null&&mDep!=null)?(mDep-mArr):null; if(xfer!=null&&xfer<0) xfer=null;
       const warn=(xfer!=null&&xfer<4), mins=xfer==null?'?':xfer;
-      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${mins} min · plat ${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
+      const transfer=`<span class="transfer ${warn?'trans-warn':'trans-ok'}">${mins}&nbsp;min · plat&nbsp;${c.cljPlat||"?"}<span class="arrow"> →</span>${warn?'':''}</span>`;
       return {transfer,pair};
     });
 
@@ -208,7 +235,7 @@ function renderBL(data){
       <div class="xrow">
         <div class="left-cell">
           <div class="time-xs">${leftPair}</div>
-          <div class="sub">plat ${leg.cljPlatArr||"?"}</div>
+          <div class="sub">plat ${leg.cljPlatArr || "?"}</div>
         </div>
         <div class="mid-cell">${midCol || `<div class="transfer trans-ok">—</div>`}</div>
         <div class="right-cell">${rightCol || `<div class="time-xs muted">—</div>`}</div>
