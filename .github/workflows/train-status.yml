@@ -22,7 +22,7 @@ jobs:
       BOOKED_DEPART_HHMM: "0744"
       LONDON_TZ: "Europe/London"
       START_LOCAL_TIME: "06:30"
-      END_LOCAL_TIME: "07:15"
+      END_LOCAL_TIME: "08:00"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
