@@ -1,173 +1,218 @@
-#!/usr/bin/env node
-/**
- * xfer.json (ROLLED BACK):
- *  - Direct SRC->IMW 07:25  (uses **today** only)
- *  - Next three SRC->CLJ strictly after 07:25 up to 08:45 (uses **today** only)
- *  - Each with up to two CLJ->IMW connections departing >= 1 minute after CLJ arrival.
- *
- * No cutover to tomorrow. RID-first for detail to keep platforms/realtime.
- */
+// scripts/xfer_plan.js
+// Bottom-left tile data builder (xfer.json)
+// - Direct: SRC->IMW at 07:25 (always shown first)
+// - Legs: next 3 SRC->CLJ after max(07:25, now), up to 08:45,
+//         each with up to 2 CLJ->IMW connections that depart >= 1 min after CLJ arrival.
+// Includes realtime + platforms via Realtime Trains Pull API.
 
-const https = require('https');
-const fs = require('fs');
+const fs = require("fs");
 
-const USER = process.env.RTT_USERNAME || '';
-const PASS = process.env.RTT_PASSWORD || '';
-if (!USER || !PASS) { console.error('Missing RTT credentials'); process.exit(1); }
+// Env
+const USER = process.env.RTT_USERNAME;
+const PASS = process.env.RTT_PASSWORD;
+const LONDON_TZ = process.env.LONDON_TZ || "Europe/London";
 
-const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
-const SRC='SRC', CLJ='CLJ', IMW='IMW';
-const WINDOW_START = process.env.WINDOW_START || '0725';
-const WINDOW_END   = process.env.WINDOW_END   || '0845';
+// CRS
+const SRC = "SRC";  // Streatham Common
+const CLJ = "CLJ";  // Clapham Junction
+const IMW = "IMW";  // Imperial Wharf
 
-// --- time/date helpers (TODAY ONLY) ---
-function toMin(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2,4),10); }
-function localYMD(tz){
-  const p=new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-  return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}-${p.find(x=>x.type==='day').value}`;
-}
-function todayISO(){ return localYMD(LONDON_TZ); }
+// Config
+const DIRECT_DEP = "0725";     // fixed direct SRC->IMW booked dep
+const WINDOW_END = "0845";     // cap legs and connections to 08:45
+const MAX_LEGS = 3;
+const MAX_CONN_PER_LEG = 2;
+const MIN_XFER_MIN = 1;
 
-// --- http helper ---
-function fetchJSON(url){
-  const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
-  return new Promise((resolve,reject)=>{
-    https.get(url,{headers:{Authorization:`Basic ${auth}`,'User-Agent':'rtt-gh-pages board'}},res=>{
-      let data=''; res.on('data',d=>data+=d);
-      res.on('end',()=>{
-        if(res.statusCode<200||res.statusCode>=300) return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
-        try{ resolve(JSON.parse(data)); }catch(e){ reject(e); }
-      });
-    }).on('error',reject);
-  });
+const auth = "Basic " + Buffer.from(`${USER}:${PASS}`).toString("base64");
+const H = { Authorization: auth, Accept: "application/json" };
+
+const pad = n => String(n).padStart(2,'0');
+const toM = t => parseInt(t.slice(0,2),10)*60 + parseInt(t.slice(2),10);
+const diff = (a,b) => toM(a)-toM(b);
+
+function parts(d=new Date()){
+  return new Intl.DateTimeFormat("en-GB",{
+    timeZone:LONDON_TZ, year:"numeric", month:"2-digit", day:"2-digit",
+    hour:"2-digit", minute:"2-digit", hour12:false
+  }).formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a),{});
 }
 
-// --- logic helpers ---
-function statusFrom(o,d){
-  if (o?.isCancelled || d?.isCancelled) return 'cancelled';
-  const depLate = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture!==o.gbttBookedDeparture;
-  const arrLate = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival!==d.gbttBookedArrival;
-  return (depLate||arrLate) ? 'delayed' : 'on_time';
-}
-const find = (detail, crs) => (detail?.locations||[]).find(l=>l.crs===crs) || {};
-
-async function detailBySvc(svc, iso){
-  if (svc.rid){
-    try { return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${svc.rid}`); }
-    catch(_e){}
+// Today until 17:00, then tomorrow (match your other tile)
+function chooseDatePath(){
+  const p = parts();
+  let y=+p.year, m=+p.month, d=+p.day;
+  if(+p.hour >= 17){
+    const dt = new Date(Date.UTC(y,m-1,d,12,0,0));
+    dt.setUTCDate(dt.getUTCDate()+1);
+    const np = parts(dt);
+    y=+np.year; m=+np.month; d=+np.day;
   }
-  const runISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
-  const mk = (u,d)=>`https://api.rtt.io/api/v1/json/service/${u}/${d}`;
-  try{ return await fetchJSON(mk(svc.serviceUid, runISO)); }
-  catch(e){
-    if (!String(e).includes('HTTP 404')) throw e;
-    // allow ±1 day in case RTT’s runDate nudges
-    for (const dlt of [+1,-1]){
-      try { return await fetchJSON(mk(svc.serviceUid, (new Date(runISO) && `${runISO}`.slice(0,10)).replace(/.*/,(x)=>x)/*.noop*/ ); }
-      catch(_e){}
-    }
-    throw e;
+  return `${y}/${pad(m)}/${pad(d)}`; // slashes for RTT
+}
+
+function nowHHMM(){
+  const p = parts();
+  return p.hour + p.minute; // "HHMM"
+}
+
+async function j(url){
+  const r = await fetch(url, { headers: H });
+  if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText} ${url}`);
+  return r.json();
+}
+
+const call = (crs, svc) => svc?.locations?.find(l=>l.crs===crs) || null;
+
+function callInfo(c){
+  if(!c) return null;
+  const bookedArr = c.gbttBookedArrival || null;
+  const bookedDep = c.gbttBookedDeparture || null;
+  const rtArr = c.realtimeArrival || null;
+  const rtDep = c.realtimeDeparture || null;
+  const arrDelay = (rtArr && bookedArr) ? diff(rtArr, bookedArr) : null;
+  const depDelay = (rtDep && bookedDep) ? diff(rtDep, bookedDep) : null;
+  return {
+    bookedArrival: bookedArr,
+    bookedDeparture: bookedDep,
+    realtimeArrival: rtArr,
+    realtimeDeparture: rtDep,
+    arrivalDelayMins: arrDelay,
+    departureDelayMins: depDelay,
+    platform: c.platform || null,
+    isCancelled: !!c.isCancelled,
+    cancelReasonShortText: c.cancelReasonShortText || null
+  };
+}
+
+function statusFrom(legStart, legEnd){
+  if(legStart?.isCancelled || legEnd?.isCancelled) return "cancelled";
+  const late = (legStart?.departureDelayMins ?? 0) > 0 || (legEnd?.arrivalDelayMins ?? 0) > 0;
+  const early = (legStart?.departureDelayMins ?? 0) < 0 || (legEnd?.arrivalDelayMins ?? 0) < 0;
+  if(late) return "delayed";
+  if(early) return "early";
+  return "on_time";
+}
+
+// Search helpers (prefer filtered /to/ then fallback)
+async function search(origin, to, hhmm, dp){
+  const f = `https://api.rtt.io/api/v1/json/search/${origin}/to/${to}/${dp}/${hhmm}`;
+  try { return await j(f); }
+  catch {
+    const u = `https://api.rtt.io/api/v1/json/search/${origin}/${dp}/${hhmm}`;
+    return await j(u);
   }
 }
 
-async function search(from,to,datePath,hhmm){
-  const base=`https://api.rtt.io/api/v1/json/search/${from}/to/${to}/${datePath}`;
-  const url = hhmm?`${base}/${hhmm}`:base;
-  const js = await fetchJSON(url);
-  return js?.services||[];
-}
-
-(async ()=>{
-  const iso = todayISO();                 // <-- ROLLBACK: always today
-  const [y,m,d] = iso.split('-'); const datePath = `${y}/${m}/${d}`;
-  console.log(`[xfer_plan] ROLLBACK mode, date=${iso}`);
-
-  const out = { generatedAt:new Date().toISOString(), datePath, window:{start:WINDOW_START,end:WINDOW_END}, direct:null, legs:[] };
-
-  // ---- Direct SRC -> IMW at 07:25 (today) ----
+(async()=>{
   try{
-    const svcs = await search(SRC, IMW, datePath, WINDOW_START);
-    const svc  = svcs.find(s => (s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture) === WINDOW_START) || svcs[0];
-    if (svc){
-      const det = await detailBySvc(svc, iso);
-      const o = find(det,SRC), iw = find(det,IMW);
-      out.direct = {
-        status: statusFrom(o, iw),
-        srcDep: o.gbttBookedDeparture || null,
-        srcDepReal: o.realtimeDeparture || null,
-        srcPlat: o.platform || null,
-        imwArr: iw.gbttBookedArrival || null,
-        imwArrReal: iw.realtimeArrival || null,
-        imwPlat: iw.platform || null
-      };
-    }
-  }catch(e){ console.warn('Direct fetch error:', String(e)); }
+    if(!USER || !PASS) throw new Error("Missing RTT_USERNAME/RTT_PASSWORD");
+    const datePath = chooseDatePath();
 
-  // ---- First legs SRC -> CLJ strictly AFTER 07:25 (today) ----
-  try{
-    const all = await search(SRC, CLJ, datePath, WINDOW_START);
-    const after = all.filter(s=>{
-      const dep = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
-      return dep && toMin(dep) > toMin(WINDOW_START) && toMin(dep) <= toMin(WINDOW_END);
-    });
+    // ---------- Direct SRC->IMW at 07:25 ----------
+    let direct = null;
+    try{
+      const s = await search(SRC, IMW, DIRECT_DEP, datePath);
+      const svc = (s.services||[]).find(x =>
+        x?.locationDetail?.gbttBookedDeparture === DIRECT_DEP && x?.destination?.[0]?.crs === IMW
+      ) || (s.services||[])[0];
+      if(svc){
+        const detail = await j(`https://api.rtt.io/api/v1/json/service/${svc.serviceUid}/${svc.runDate.replace(/-/g,"/")}`);
+        const o = call(SRC, detail), d = call(IMW, detail);
+        const oi = callInfo(o), di = callInfo(d);
+        direct = {
+          status: statusFrom(oi, di),
+          srcDep: oi?.bookedDeparture || DIRECT_DEP,
+          srcDepReal: oi?.realtimeDeparture || null,
+          srcPlat: oi?.platform || null,
+          imwArr: di?.bookedArrival || null,
+          imwArrReal: di?.realtimeArrival || null,
+          imwPlat: di?.platform || null
+        };
+      }
+    }catch{/* ignore, leave null */}
+
+    // ---------- Legs: next 3 SRC->CLJ after max(07:25, NOW), <= 08:45 ----------
+    const start = (() => {
+      const n = nowHHMM();
+      return toM(n) > toM(DIRECT_DEP) ? n : DIRECT_DEP;
+    })();
+
+    const s1 = await search(SRC, CLJ, start, datePath);
+    const allSrc = (s1.services||[])
+      .filter(x => x?.locationDetail?.gbttBookedDeparture)
+      .filter(x => x.locationDetail.gbttBookedDeparture > start && x.locationDetail.gbttBookedDeparture <= WINDOW_END)
+      .sort((a,b) => toM(a.locationDetail.gbttBookedDeparture) - toM(b.locationDetail.gbttBookedDeparture));
 
     const legs = [];
-    for (const svc of after){
-      if (!svc?.serviceUid) continue;
-      let det;
-      try { det = await detailBySvc(svc, iso); }
-      catch(e){ console.warn('First-leg detail 404, skipping:', String(e)); continue; }
 
-      const o = find(det, SRC);
-      const a = find(det, CLJ);
-      if (!o?.gbttBookedDeparture || !a?.gbttBookedArrival) continue;
+    for(const svc of allSrc){
+      if(legs.length >= MAX_LEGS) break;
+      const uid = svc.serviceUid, rd = svc.runDate?.replace(/-/g,"/");
+      if(!uid || !rd) continue;
 
-      // Connections: CLJ -> IMW, depart >= (arrReal||arrBooked) + 1 minute
-      const arrMin = toMin(a.realtimeArrival || a.gbttBookedArrival);
-      const startHHMM = String(Math.floor((arrMin+1)/60)).padStart(2,'0') + String((arrMin+1)%60).padStart(2,'0');
+      const det = await j(`https://api.rtt.io/api/v1/json/service/${uid}/${rd}`);
+      const o = call(SRC, det), h = call(CLJ, det);
+      if(!o || !h || o.isCancelled) continue;
 
+      const oi = callInfo(o), hi = callInfo(h);
+      const cljArrBooked = hi.bookedArrival || hi.bookedDeparture;
+      if(!cljArrBooked) continue;
+
+      // Connections: CLJ->IMW departing >= 1 min after CLJ arrival, <= WINDOW_END
+      const s2 = await search(CLJ, IMW, cljArrBooked, datePath);
+      const cand = (s2.services||[]);
       const conns = [];
-      try{
-        const cand = await search(CLJ, IMW, datePath, startHHMM);
-        for (const c of cand){
-          if (conns.length >= 2) break;
-          if (!c?.serviceUid) continue;
-          let cd; try { cd = await detailBySvc(c, iso); } catch(e){ continue; }
-          const cj = find(cd, CLJ);
-          const iw = find(cd, IMW);
-          if (!cj?.gbttBookedDeparture || !iw?.gbttBookedArrival) continue;
 
-          const depMin = toMin(cj.realtimeDeparture || cj.gbttBookedDeparture);
-          if (depMin < arrMin + 1) continue;
+      for(const s2c of cand){
+        if(conns.length >= MAX_CONN_PER_LEG) break;
+        const uid2 = s2c.serviceUid, rd2 = s2c.runDate?.replace(/-/g,"/");
+        if(!uid2 || !rd2) continue;
+        const ddet = await j(`https://api.rtt.io/api/v1/json/service/${uid2}/${rd2}`);
+        const c = call(CLJ, ddet), d = call(IMW, ddet);
+        if(!c || !d || c.isCancelled) continue;
 
-          conns.push({
-            status: statusFrom(cj, iw),
-            cljDep: cj.gbttBookedDeparture || null,
-            cljDepReal: cj.realtimeDeparture || null,
-            cljPlat: cj.platform || null,
-            imwArr: iw.gbttBookedArrival || null,
-            imwArrReal: iw.realtimeArrival || null,
-            imwPlat: iw.platform || null
-          });
-        }
-      }catch(_e){}
+        const ci = callInfo(c), di = callInfo(d);
+        const depCLJ = ci.bookedDeparture || ci.bookedArrival;
+        if(!depCLJ) continue;
+        if(toM(depCLJ) <= toM(cljArrBooked)) continue;                      // must be after arrival
+        if(diff(depCLJ, cljArrBooked) < MIN_XFER_MIN) continue;             // >= 1 minute
+        if(toM(depCLJ) > toM(WINDOW_END)) continue;                         // within window
+
+        conns.push({
+          status: statusFrom(ci, di),
+          cljDep: ci.bookedDeparture || null,
+          cljDepReal: ci.realtimeDeparture || null,
+          cljPlat: ci.platform || null,
+          imwArr: di.bookedArrival || null,
+          imwArrReal: di.realtimeArrival || null,
+          imwPlat: di.platform || null
+        });
+      }
 
       legs.push({
-        srcDep: o.gbttBookedDeparture || null,
-        srcDepReal: o.realtimeDeparture || null,
-        srcPlat: o.platform || null,
-        cljArr: a.gbttBookedArrival || null,
-        cljArrReal: a.realtimeArrival || null,
-        cljPlatArr: a.platform || null,
+        srcDep: oi.bookedDeparture,
+        srcDepReal: oi.realtimeDeparture || null,
+        srcPlat: oi.platform || null,
+        cljArr: hi.bookedArrival || hi.bookedDeparture,
+        cljArrReal: hi.realtimeArrival || hi.realtimeDeparture || null,
+        cljPlatArr: hi.platform || null,
         connections: conns
       });
-
-      if (legs.length >= 3) break; // keep only next three AFTER 07:25
     }
 
-    out.legs = legs;
-  }catch(e){ console.warn('First-leg fetch error:', String(e)); }
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      datePath,
+      window: { start, end: WINDOW_END },
+      direct,
+      legs
+    };
 
-  fs.writeFileSync('xfer.json', JSON.stringify(out,null,2));
-  console.log('Wrote xfer.json (ROLLED BACK to today/after 07:25).');
+    fs.writeFileSync("xfer.json", JSON.stringify(payload, null, 2));
+    console.log("Saved xfer.json:", { direct: !!direct, legs: legs.length, start, end: WINDOW_END });
+  }catch(e){
+    console.error(e);
+    fs.writeFileSync("xfer.json", JSON.stringify({ error:String(e) }, null, 2));
+  }
 })();
