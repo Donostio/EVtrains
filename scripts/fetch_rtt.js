@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 /**
- * status.json for STE -> WIM 07:44
- * - Rolls to TOMORROW after CUTOVER_LOCAL_TIME (default 09:00 Europe/London).
- * - Prefers detail by RID; falls back to UID+runDate with ±1 day retry.
+ * Build status.json for the fixed STE -> WIM 07:44 service.
+ * Rolls to TOMORROW after 09:00 Europe/London (configurable via CUTOVER_LOCAL_TIME).
+ *
+ * Env:
+ *  - RTT_USERNAME, RTT_PASSWORD   (required)
+ *  - ORIGIN_CRS (default "STE")
+ *  - DEST_CRS   (default "WIM")
+ *  - BOOKED_DEPART_HHMM (default "0744")
+ *  - LONDON_TZ (default "Europe/London")
+ *  - CUTOVER_LOCAL_TIME (default "09:00")
  */
 
 const https = require('https');
@@ -10,7 +17,10 @@ const fs = require('fs');
 
 const USER = process.env.RTT_USERNAME || '';
 const PASS = process.env.RTT_PASSWORD || '';
-if (!USER || !PASS) { console.error('Missing RTT credentials'); process.exit(1); }
+if (!USER || !PASS) {
+  console.error('Missing RTT credentials (RTT_USERNAME/RTT_PASSWORD).');
+  process.exit(1);
+}
 
 const ORIGIN = process.env.ORIGIN_CRS || 'STE';
 const DEST   = process.env.DEST_CRS   || 'WIM';
@@ -18,107 +28,97 @@ const HHMM   = process.env.BOOKED_DEPART_HHMM || '0744';
 const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
 const CUTOVER   = process.env.CUTOVER_LOCAL_TIME || '09:00';
 
-// --- time/date helpers ---
-function toMinutes(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2,4),10); }
-function toMinutesAny(hhmmOrColon){
-  const s = (hhmmOrColon || '').replace(':','');
-  return parseInt(s.slice(0,2) || '0',10)*60 + parseInt(s.slice(2,4) || '0',10);
+function toMinutes(hhmm) {
+  return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10);
 }
-function localYMD(tz){
-  const p = new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-  return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}-${p.find(x=>x.type==='day').value}`;
+function fmtHM(hhmm) {
+  return hhmm ? hhmm.slice(0,2)+':'+hhmm.slice(2) : null;
 }
-function localHM(tz){ return new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date()); }
-function isoShiftDays(iso, days){ const d=new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); }
-function targetServiceDate(){
-  const today = localYMD(LONDON_TZ);
-  const hm = localHM(LONDON_TZ);                      // "HH:MM"
-  return (toMinutesAny(hm) >= toMinutesAny(CUTOVER)) ? isoShiftDays(today,+1) : today;
+function ymdParts(dateStr) {
+  const [y,m,d] = dateStr.split('-'); return {y,m,d};
+}
+function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER) {
+  const now = new Date();
+  const hm = new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(now);
+  const todayISO = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+  const today = new Date(todayISO); // local midnight in ISO yyyy-mm-dd in system tz
+  const base = (toMinutes(hm) >= toMinutes(cut)) ? new Date(today.getTime()+86400000) : today;
+  return base.toISOString().slice(0,10);
 }
 
-// --- http helper ---
-function fetchJSON(url){
+function fetchJSON(url) {
   const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
   return new Promise((resolve,reject)=>{
-    const req = https.get(url, { headers:{ Authorization:`Basic ${auth}`, 'User-Agent':'rtt-gh-pages board' }}, res=>{
-      let data=''; res.on('data',d=>data+=d);
+    const req = https.get(url, { headers: { Authorization:`Basic ${auth}`, 'User-Agent':'rtt-gh-pages board' }}, res => {
+      let data=''; res.on('data', d=>data+=d);
       res.on('end', ()=>{
-        if (res.statusCode<200 || res.statusCode>=300) return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
-        try{ resolve(JSON.parse(data)); }catch(e){ reject(e); }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
+        }
+        try { resolve(JSON.parse(data)); } catch(e){ reject(e); }
       });
     });
     req.on('error', reject);
   });
 }
 
-// --- status calc ---
-function pickStatus(o, d){
+function pickStatus(o, d) {
   if (o?.isCancelled || d?.isCancelled) return 'cancelled';
-  const depLate = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture !== o.gbttBookedDeparture;
-  const arrLate = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival !== d.gbttBookedArrival;
+  const depB = o?.bookedDeparture, depR = o?.realtimeDeparture;
+  const arrB = d?.bookedArrival,   arrR = d?.realtimeArrival;
+  const depLate = depB && depR && depR !== depB;
+  const arrLate = arrB && arrR && arrR !== arrB;
   return (depLate || arrLate) ? 'delayed' : 'on_time';
 }
 
 (async ()=>{
   const iso = targetServiceDate();
-  const [y,m,d] = iso.split('-'); const datePath = `${y}/${m}/${d}`;
-  console.log(`[fetch_rtt] tz=${LONDON_TZ} hm=${localHM(LONDON_TZ)} cut=${CUTOVER} targetISO=${iso}`);
+  const {y,m,d} = ymdParts(iso);
+  const datePath = `${y}/${m}/${d}`;
 
-  // SEARCH
   const searchUrl = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${HHMM}`;
   let search;
-  try { search = await fetchJSON(searchUrl); }
+  try {
+    search = await fetchJSON(searchUrl);
+  } catch (e) {
+    const err = { error: String(e), when: new Date().toISOString() };
+    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
+    console.error(err);
+    process.exit(0);
+  }
+
+  const svc = (search?.services || []).find(s => {
+    // We expect the booked GBTT to match HHMM at origin (sometimes in 'locationDetail')
+    const bd = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
+    return bd === HHMM;
+  }) || (search?.services || [])[0];
+
+  if (!svc || !svc.serviceUid) {
+    const err = { error:`No service found at ${ORIGIN}->${DEST} ${datePath} ${HHMM}`, when:new Date().toISOString() };
+    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
+    console.warn(err);
+    process.exit(0);
+  }
+
+  const detailUrl = `https://api.rtt.io/api/v1/json/service/${svc.serviceUid}/${iso}`;
+  let detail;
+  try { detail = await fetchJSON(detailUrl); }
   catch(e){
-    const err = { error:String(e), when:new Date().toISOString(), phase:'search' };
+    const err = { error:String(e), when:new Date().toISOString() };
     fs.writeFileSync('status.json', JSON.stringify(err,null,2));
     console.error(err); process.exit(0);
   }
 
-  const services = search?.services || [];
-  const svc = services.find(s => (s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture) === HHMM) || services[0];
-  if (!svc?.serviceUid){
-    const err = { error:`No service found at ${ORIGIN}->${DEST} ${datePath} ${HHMM}`, when:new Date().toISOString() };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2)); console.warn(err); process.exit(0);
-  }
-
-  const rid = svc.rid || null;
-  const svcRunISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
-
-  async function getDetail(){
-    if (rid){
-      try { return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${rid}`); }
-      catch(e){ /* fall back */ }
-    }
-    const mk = (u,d)=>`https://api.rtt.io/api/v1/json/service/${u}/${d}`;
-    try{ return await fetchJSON(mk(svc.serviceUid, svcRunISO)); }
-    catch(e){
-      if (!String(e).includes('HTTP 404')) throw e;
-      for (const delta of [+1,-1]){
-        try{ return await fetchJSON(mk(svc.serviceUid, isoShiftDays(svcRunISO, delta))); }
-        catch(_e){}
-      }
-      throw e;
-    }
-  }
-
-  let detail;
-  try { detail = await getDetail(); }
-  catch(e){
-    const err = { error:String(e), when:new Date().toISOString(), triedDate: svcRunISO, rid: rid||null };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2)); console.error(err); process.exit(0);
-  }
-
-  const findStop = crs => (detail?.locations||[]).find(l=>l.crs===crs);
-
+  // Find origin and destination stops in the calling points array
+  const findStop = (crs) => (detail?.locations || []).find(l => l.crs === crs);
   const o = findStop(ORIGIN) || {};
-  const dest = findStop(DEST) || {};
+  const d = findStop(DEST)   || {};
 
   const out = {
     generatedAt: new Date().toISOString(),
-    date: svcRunISO,
+    date: iso,
     serviceUid: svc.serviceUid,
-    rid: rid || null,
-    runDate: svcRunISO,
+    runDate: iso,
     originCRS: ORIGIN,
     destinationCRS: DEST,
     gbttBookedDeparture: HHMM,
@@ -130,22 +130,27 @@ function pickStatus(o, d){
       arrivalDelayMins: o.realtimeArrival && o.gbttBookedArrival ? (toMinutes(o.realtimeArrival)-toMinutes(o.gbttBookedArrival)) : null,
       departureDelayMins:o.realtimeDeparture && o.gbttBookedDeparture ? (toMinutes(o.realtimeDeparture)-toMinutes(o.gbttBookedDeparture)) : null,
       platform: o.platform || null,
-      isCancelled: !!o.isCancelled
+      isCancelled: !!o.isCancelled,
+      cancelReasonCode: o.cancelReasonCode || null,
+      cancelReasonShortText: o.cancelReasonShortText || null
     },
     destination: {
-      bookedArrival:   dest.gbttBookedArrival   || null,
-      bookedDeparture: dest.gbttBookedDeparture || null,
-      realtimeArrival: dest.realtimeArrival     || null,
-      realtimeDeparture:dest.realtimeDeparture  || null,
-      arrivalDelayMins: dest.realtimeArrival && dest.gbttBookedArrival ? (toMinutes(dest.realtimeArrival)-toMinutes(dest.gbttBookedArrival)) : null,
-      departureDelayMins:dest.realtimeDeparture && dest.gbttBookedDeparture ? (toMinutes(dest.realtimeDeparture)-toMinutes(dest.gbttBookedDeparture)) : null,
-      platform: dest.platform || null,
-      isCancelled: !!dest.isCancelled
+      bookedArrival:   d.gbttBookedArrival   || null,
+      bookedDeparture: d.gbttBookedDeparture || null,
+      realtimeArrival: d.realtimeArrival     || null,
+      realtimeDeparture:d.realtimeDeparture  || null,
+      arrivalDelayMins: d.realtimeArrival && d.gbttBookedArrival ? (toMinutes(d.realtimeArrival)-toMinutes(d.gbttBookedArrival)) : null,
+      departureDelayMins:d.realtimeDeparture && d.gbttBookedDeparture ? (toMinutes(d.realtimeDeparture)-toMinutes(d.gbttBookedDeparture)) : null,
+      platform: d.platform || null,
+      isCancelled: !!d.isCancelled,
+      cancelReasonCode: d.cancelReasonCode || null,
+      cancelReasonShortText: d.cancelReasonShortText || null
     },
-    status: pickStatus(o,dest),
-    searchUrl
+    status: pickStatus(o,d),
+    searchUrl,
+    detailUrl
   };
 
   fs.writeFileSync('status.json', JSON.stringify(out,null,2));
-  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, 'rid', rid || '(uid+date)');
+  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, iso);
 })();
