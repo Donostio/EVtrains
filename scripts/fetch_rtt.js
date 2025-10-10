@@ -1,156 +1,156 @@
-#!/usr/bin/env node
-/**
- * Build status.json for the fixed STE -> WIM 07:44 service.
- * Rolls to TOMORROW after 09:00 Europe/London (configurable via CUTOVER_LOCAL_TIME).
- *
- * Env:
- *  - RTT_USERNAME, RTT_PASSWORD   (required)
- *  - ORIGIN_CRS (default "STE")
- *  - DEST_CRS   (default "WIM")
- *  - BOOKED_DEPART_HHMM (default "0744")
- *  - LONDON_TZ (default "Europe/London")
- *  - CUTOVER_LOCAL_TIME (default "09:00")
- */
+// scripts/fetch_rtt.js
+// Fetches 07:44 Streatham→Wimbledon from Realtime Trains Pull API
 
-const https = require('https');
-const fs = require('fs');
+const fs = require("fs");
 
-const USER = process.env.RTT_USERNAME || '';
-const PASS = process.env.RTT_PASSWORD || '';
-if (!USER || !PASS) {
-  console.error('Missing RTT credentials (RTT_USERNAME/RTT_PASSWORD).');
-  process.exit(1);
+const USER = process.env.RTT_USERNAME;
+const PASS = process.env.RTT_PASSWORD;
+const ORIGIN = process.env.ORIGIN_CRS || "STE";
+const DEST = process.env.DEST_CRS || "WIM";
+const GBTT = process.env.BOOKED_DEPART_HHMM || "0744";
+const LONDON_TZ = process.env.LONDON_TZ || "Europe/London";
+
+const pad = (n) => String(n).padStart(2, "0");
+const hhmmToMinutes = (s) => parseInt(s.slice(0, 2), 10) * 60 + parseInt(s.slice(2), 10);
+const diffMinutes = (a, b) => hhmmToMinutes(a) - hhmmToMinutes(b);
+
+function getLocalParts(date = new Date(), tz = LONDON_TZ) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(date).reduce((acc, p) => ((acc[p.type] = p.value), acc), {});
 }
 
-const ORIGIN = process.env.ORIGIN_CRS || 'STE';
-const DEST   = process.env.DEST_CRS   || 'WIM';
-const HHMM   = process.env.BOOKED_DEPART_HHMM || '0744';
-const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
-const CUTOVER   = process.env.CUTOVER_LOCAL_TIME || '09:00';
-
-function toMinutes(hhmm) {
-  return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2),10);
-}
-function fmtHM(hhmm) {
-  return hhmm ? hhmm.slice(0,2)+':'+hhmm.slice(2) : null;
-}
-function ymdParts(dateStr) {
-  const [y,m,d] = dateStr.split('-'); return {y,m,d};
-}
-function targetServiceDate(tz=LONDON_TZ, cut=CUTOVER) {
-  const now = new Date();
-  const hm = new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false}).format(now);
-  const todayISO = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
-  const today = new Date(todayISO); // local midnight in ISO yyyy-mm-dd in system tz
-  const base = (toMinutes(hm) >= toMinutes(cut)) ? new Date(today.getTime()+86400000) : today;
-  return base.toISOString().slice(0,10);
+// Today until 17:00 local, then tomorrow
+function chooseServiceDate() {
+  const lp = getLocalParts();
+  let y = +lp.year, m = +lp.month, d = +lp.day;
+  if (+lp.hour >= 17) {
+    const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    const nlp = getLocalParts(dt);
+    y = +nlp.year; m = +nlp.month; d = +nlp.day;
+  }
+  return { yyyy: String(y), mm: pad(m), dd: pad(d) };
 }
 
-function fetchJSON(url) {
-  const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
-  return new Promise((resolve,reject)=>{
-    const req = https.get(url, { headers: { Authorization:`Basic ${auth}`, 'User-Agent':'rtt-gh-pages board' }}, res => {
-      let data=''; res.on('data', d=>data+=d);
-      res.on('end', ()=>{
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
-        }
-        try { resolve(JSON.parse(data)); } catch(e){ reject(e); }
-      });
-    });
-    req.on('error', reject);
-  });
+const { yyyy, mm, dd } = chooseServiceDate();
+const datePath = `${yyyy}/${mm}/${dd}`;                  // <- slashes for RTT
+const nowLP = getLocalParts();
+const generatedAt = new Date(`${nowLP.year}-${nowLP.month}-${nowLP.day}T${nowLP.hour}:${nowLP.minute}:00`).toISOString();
+
+const b64 = Buffer.from(`${USER}:${PASS}`).toString("base64");
+const headers = { Authorization: `Basic ${b64}`, Accept: "application/json" };
+
+async function httpJson(url) {
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+  return res.json();
 }
 
-function pickStatus(o, d) {
-  if (o?.isCancelled || d?.isCancelled) return 'cancelled';
-  const depB = o?.bookedDeparture, depR = o?.realtimeDeparture;
-  const arrB = d?.bookedArrival,   arrR = d?.realtimeArrival;
-  const depLate = depB && depR && depR !== depB;
-  const arrLate = arrB && arrR && arrR !== arrB;
-  return (depLate || arrLate) ? 'delayed' : 'on_time';
-}
+const findCall = (crs, service) => service?.locations?.find((l) => l.crs === crs) || null;
 
-(async ()=>{
-  const iso = targetServiceDate();
-  const {y,m,d} = ymdParts(iso);
-  const datePath = `${y}/${m}/${d}`;
-
-  const searchUrl = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${HHMM}`;
-  let search;
+// 1) try filtered search (/to/ before date+time); 2) fallback to unfiltered
+async function searchCandidates() {
+  const filtered = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${GBTT}`;
   try {
-    search = await fetchJSON(searchUrl);
+    const js = await httpJson(filtered);
+    const svcs = (js?.services || []).filter(s => s?.locationDetail?.gbttBookedDeparture === GBTT);
+    return { urlTried: filtered, services: svcs, filtered: true };
+  } catch {
+    const unfiltered = `https://api.rtt.io/api/v1/json/search/${ORIGIN}/${datePath}/${GBTT}`;
+    const js = await httpJson(unfiltered);
+    const svcs = (js?.services || []).filter(s => s?.locationDetail?.gbttBookedDeparture === GBTT);
+    return { urlTried: unfiltered, services: svcs, filtered: false };
+  }
+}
+
+(async () => {
+  try {
+    if (!USER || !PASS) throw new Error("Missing RTT_USERNAME or RTT_PASSWORD env");
+
+    const { urlTried, services, filtered } = await searchCandidates();
+
+    let chosen = null;
+    if (filtered) {
+      chosen = services.find(s => s?.destination?.[0]?.crs === DEST) || services[0] || null;
+    } else {
+      // Probe a few candidates to ensure the service actually calls at DEST
+      for (const s of services.slice(0, 5)) {
+        const { serviceUid, runDate } = s || {};
+        if (!serviceUid || !runDate) continue;
+        const detailUrl = `https://api.rtt.io/api/v1/json/service/${serviceUid}/${runDate.replace(/-/g, "/")}`;
+        try {
+          const detail = await httpJson(detailUrl);
+          if (findCall(DEST, detail)) { chosen = s; break; }
+        } catch { /* try next */ }
+      }
+      if (!chosen) chosen = services[0] || null;
+    }
+
+    if (!chosen) {
+      const payload = {
+        generatedAt, date: `${yyyy}-${mm}-${dd}`,
+        originCRS: ORIGIN, destinationCRS: DEST, gbttBookedDeparture: GBTT,
+        status: "not_found", note: "Booked service not found in search results.",
+        searchUrl: urlTried
+      };
+      fs.writeFileSync("status.json", JSON.stringify(payload, null, 2));
+      fs.appendFileSync("history.jsonl", JSON.stringify(payload) + "\n");
+      console.log("Saved status.json (not_found).");
+      return;
+    }
+
+    const { serviceUid, runDate } = chosen;                   // runDate = YYYY-MM-DD (from API)
+    const detailUrl = `https://api.rtt.io/api/v1/json/service/${serviceUid}/${runDate.replace(/-/g, "/")}`; // <- slashes
+    const detail = await httpJson(detailUrl);
+
+    function callInfo(call) {
+      if (!call) return null;
+      const bookedArr = call.gbttBookedArrival || null;
+      const bookedDep = call.gbttBookedDeparture || null;
+      const rtArr = call.realtimeArrival || null;
+      const rtDep = call.realtimeDeparture || null;
+      const arrDelay = rtArr && bookedArr ? diffMinutes(rtArr, bookedArr) : null;
+      const depDelay = rtDep && bookedDep ? diffMinutes(rtDep, bookedDep) : null;
+      return {
+        bookedArrival: bookedArr, bookedDeparture: bookedDep,
+        realtimeArrival: rtArr, realtimeDeparture: rtDep,
+        arrivalDelayMins: arrDelay, departureDelayMins: depDelay,
+        platform: call.platform || null,
+        isCancelled: !!call.isCancelled,
+        cancelReasonCode: call.cancelReasonCode || null,
+        cancelReasonShortText: call.cancelReasonShortText || null,
+      };
+    }
+
+    const origin = callInfo(findCall(ORIGIN, detail));
+    const dest = callInfo(findCall(DEST, detail));
+
+    let overall = "on_time";
+    if (origin?.isCancelled || dest?.isCancelled) overall = "cancelled";
+    else if ((origin?.departureDelayMins ?? 0) > 0 || (dest?.arrivalDelayMins ?? 0) > 0) overall = "delayed";
+    else if ((origin?.departureDelayMins ?? 0) < 0 || (dest?.arrivalDelayMins ?? 0) < 0) overall = "early";
+
+    const payload = {
+      generatedAt, date: `${yyyy}-${mm}-${dd}`,
+      serviceUid, runDate,
+      originCRS: ORIGIN, destinationCRS: DEST, gbttBookedDeparture: GBTT,
+      origin, destination: dest, status: overall,
+      searchUrl: filtered
+        ? `https://api.rtt.io/api/v1/json/search/${ORIGIN}/to/${DEST}/${datePath}/${GBTT}`
+        : `https://api.rtt.io/api/v1/json/search/${ORIGIN}/${datePath}/${GBTT}`,
+      detailUrl
+    };
+
+    fs.writeFileSync("status.json", JSON.stringify(payload, null, 2));
+    fs.appendFileSync("history.jsonl", JSON.stringify(payload) + "\n");
+    console.log("Saved status.json");
   } catch (e) {
-    const err = { error: String(e), when: new Date().toISOString() };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
-    console.error(err);
-    process.exit(0);
+    console.error(e);
+    const msg = { error: String(e), when: new Date().toISOString() };
+    fs.writeFileSync("status.json", JSON.stringify(msg, null, 2));
+    fs.appendFileSync("history.jsonl", JSON.stringify(msg) + "\n");
   }
-
-  const svc = (search?.services || []).find(s => {
-    // We expect the booked GBTT to match HHMM at origin (sometimes in 'locationDetail')
-    const bd = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
-    return bd === HHMM;
-  }) || (search?.services || [])[0];
-
-  if (!svc || !svc.serviceUid) {
-    const err = { error:`No service found at ${ORIGIN}->${DEST} ${datePath} ${HHMM}`, when:new Date().toISOString() };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
-    console.warn(err);
-    process.exit(0);
-  }
-
-  const detailUrl = `https://api.rtt.io/api/v1/json/service/${svc.serviceUid}/${iso}`;
-  let detail;
-  try { detail = await fetchJSON(detailUrl); }
-  catch(e){
-    const err = { error:String(e), when:new Date().toISOString() };
-    fs.writeFileSync('status.json', JSON.stringify(err,null,2));
-    console.error(err); process.exit(0);
-  }
-
-  // Find origin and destination stops in the calling points array
-  const findStop = (crs) => (detail?.locations || []).find(l => l.crs === crs);
-  const o = findStop(ORIGIN) || {};
-  const d = findStop(DEST)   || {};
-
-  const out = {
-    generatedAt: new Date().toISOString(),
-    date: iso,
-    serviceUid: svc.serviceUid,
-    runDate: iso,
-    originCRS: ORIGIN,
-    destinationCRS: DEST,
-    gbttBookedDeparture: HHMM,
-    origin: {
-      bookedArrival:   o.gbttBookedArrival   || null,
-      bookedDeparture: o.gbttBookedDeparture || null,
-      realtimeArrival: o.realtimeArrival     || null,
-      realtimeDeparture:o.realtimeDeparture  || null,
-      arrivalDelayMins: o.realtimeArrival && o.gbttBookedArrival ? (toMinutes(o.realtimeArrival)-toMinutes(o.gbttBookedArrival)) : null,
-      departureDelayMins:o.realtimeDeparture && o.gbttBookedDeparture ? (toMinutes(o.realtimeDeparture)-toMinutes(o.gbttBookedDeparture)) : null,
-      platform: o.platform || null,
-      isCancelled: !!o.isCancelled,
-      cancelReasonCode: o.cancelReasonCode || null,
-      cancelReasonShortText: o.cancelReasonShortText || null
-    },
-    destination: {
-      bookedArrival:   d.gbttBookedArrival   || null,
-      bookedDeparture: d.gbttBookedDeparture || null,
-      realtimeArrival: d.realtimeArrival     || null,
-      realtimeDeparture:d.realtimeDeparture  || null,
-      arrivalDelayMins: d.realtimeArrival && d.gbttBookedArrival ? (toMinutes(d.realtimeArrival)-toMinutes(d.gbttBookedArrival)) : null,
-      departureDelayMins:d.realtimeDeparture && d.gbttBookedDeparture ? (toMinutes(d.realtimeDeparture)-toMinutes(d.gbttBookedDeparture)) : null,
-      platform: d.platform || null,
-      isCancelled: !!d.isCancelled,
-      cancelReasonCode: d.cancelReasonCode || null,
-      cancelReasonShortText: d.cancelReasonShortText || null
-    },
-    status: pickStatus(o,d),
-    searchUrl,
-    detailUrl
-  };
-
-  fs.writeFileSync('status.json', JSON.stringify(out,null,2));
-  console.log('Wrote status.json for', ORIGIN,'→',DEST, HHMM, iso);
 })();
+
