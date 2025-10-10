@@ -1,10 +1,18 @@
 {
-  "generatedAt": "2025-10-10T08:16:07.521Z",
-  "datePath": "2025/10/11",
+  "generatedAt": "2025-10-10T09:20:54.883Z",
+  "datePath": "2025/10/10",
   "window": {
-    "start": "0725",
+    "start": "1020",
     "end": "0845"
   },
-  "direct": null,
+  "direct": {
+    "status": "delayed",
+    "srcDep": "0725",
+    "srcDepReal": "0726",
+    "srcPlat": "2",
+    "imwArr": "0743",
+    "imwArrReal": "0743",
+    "imwPlat": "2"
+  },
   "legs": []
 }
