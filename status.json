@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2025-11-12T06:58:00.000Z",
-  "date": "2025-11-12",
+  "generatedAt": "2025-11-13T06:30:00.000Z",
+  "date": "2025-11-13",
   "serviceUid": "Y37242",
-  "runDate": "2025-11-12",
+  "runDate": "2025-11-13",
   "originCRS": "STE",
   "destinationCRS": "WIM",
   "gbttBookedDeparture": "0744",
@@ -31,6 +31,6 @@
     "cancelReasonShortText": null
   },
   "status": "on_time",
-  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2025/11/12/0744",
-  "detailUrl": "https://api.rtt.io/api/v1/json/service/Y37242/2025/11/12"
+  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2025/11/13/0744",
+  "detailUrl": "https://api.rtt.io/api/v1/json/service/Y37242/2025/11/13"
 }
