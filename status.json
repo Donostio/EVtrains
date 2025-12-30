@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2025-12-29T07:10:00.000Z",
-  "date": "2025-12-29",
+  "generatedAt": "2025-12-30T06:35:00.000Z",
+  "date": "2025-12-30",
   "originCRS": "STE",
   "destinationCRS": "WIM",
   "gbttBookedDeparture": "0744",
   "status": "not_found",
   "note": "Booked service not found in search results.",
-  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2025/12/29/0744"
+  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2025/12/30/0744"
 }
