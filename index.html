@@ -28,6 +28,15 @@
   .inner{ width:100%; height:100%; display:grid; place-items:center }
   iframe{ width:100%; height:100%; border:none; background:#000 }
 
+  /* ---------- Shared typography ---------- */
+  .sub{   font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
+  .muted{ color:var(--muted) }
+  .green{ color:var(--green) }
+  .amber{ color:var(--amber) }
+  .red{ color:var(--red) }
+  .small{ font-size:0.85em }
+  .strike{ text-decoration:line-through }
+
   /* ---------- TL (STE→WIM) ---------- */
   #tl_app{ text-align:center }
   .tl-stack{
@@ -37,15 +46,10 @@
     justify-content:center;
     gap:0.02rem;
   }
-  .route{ font-size:clamp(34px,6.5vw,74px); font-weight:900; letter-spacing:0.06em }
+
+  /* CHANGE: make STE-WIM ~half size */
+  .route{ font-size:clamp(18px,3.3vw,38px); font-weight:900; letter-spacing:0.06em }
   .time{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em }
-  .sub{   font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
-  .muted{ color:var(--muted) }
-  .green{ color:var(--green) }
-  .amber{ color:var(--amber) }
-  .red{ color:var(--red) }
-  .small{ font-size:0.85em }
-  .strike{ text-decoration:line-through }
 
   /* ---------- BL (xfer) ---------- */
   #bl_app{ width:100%; height:100%; padding:22px 26px; box-sizing:border-box }
@@ -55,10 +59,22 @@
     text-transform:uppercase;
     color:var(--muted);
   }
+
+  /* Keep the rows readable */
   .time-xs{ font-size:clamp(16px,2.2vw,28px); font-weight:800 }
-  .direct-block{ text-align:center }
-  .direct-line{ margin-top:10px }
-  .direct-plats{ margin-top:6px }
+
+  /* NEW: “mini card” style matching TL */
+  .mini-stack{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:0.02rem;
+    text-align:center;
+  }
+  .route-mini{ font-size:clamp(14px,2.6vw,30px); font-weight:900; letter-spacing:0.06em }
+  .time-mini{  font-size:clamp(18px,3.0vw,34px); font-weight:800; letter-spacing:0.02em }
+
   .direct-gap{ height:18px }
 
   .xfer-wrap{ width:100% }
@@ -85,7 +101,7 @@
   .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-end; }
   .right-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-start; text-align:left }
 
-  /* A connection row: transfer | times kept together */
+  /* Transfer line */
   .pair{
     display:grid;
     grid-template-columns:max-content max-content;
@@ -100,18 +116,11 @@
 
   /* ---------- District tile overlays ---------- */
   .dl-wrap{ position:relative; width:100%; height:100%; }
-  .dl-label{
-    position:absolute;
-    top:10px;
-    left:50%;
-    transform:translateX(-50%);
-    z-index:5;
-    text-align:center;
-    pointer-events:none;
-  }
+
+  /* CHANGE: planned line ABOVE “Now”, both lowered nearer the roundel */
   .dl-planned{
     position:absolute;
-    bottom:10px;
+    top:44px;
     left:50%;
     transform:translateX(-50%);
     z-index:5;
@@ -122,6 +131,15 @@
     overflow:hidden;
     text-overflow:ellipsis;
     display:none;
+  }
+  .dl-label{
+    position:absolute;
+    top:72px;                 /* lowered */
+    left:50%;
+    transform:translateX(-50%);
+    z-index:5;
+    text-align:center;
+    pointer-events:none;
   }
 
   /* ---------- Responsive ---------- */
@@ -134,12 +152,12 @@
     .mid-cell,.right-cell{ gap:1rem }
   }
   @media (max-height: 480px) and (orientation: landscape){
-    .tl-stack .time{ font-size:clamp(24px,4.8vw,56px) }
     .time-xs{ font-size:clamp(12px,1.6vw,20px) }
     .title{ font-size:clamp(10px,1.3vw,16px) }
-    .tl-stack .sub{ font-size:clamp(10px,1.2vw,14px) }
     .xrow{ column-gap:10px; padding:4px 0 }
     .pair{ column-gap:8px }
+    .dl-planned{ top:28px }
+    .dl-label{ top:50px }
   }
 </style>
 </head>
@@ -151,8 +169,8 @@
     <!-- TOP RIGHT -->
     <section class="tile">
       <div class="inner dl-wrap">
-        <div class="dl-label sub">Now</div>
         <div id="dl_planned" class="dl-planned sub"></div>
+        <div class="dl-label sub">Now</div>
         <iframe
           src="https://donostio.github.io/DLstatus/?embed=1&theme=dark"
           loading="lazy"
@@ -186,7 +204,7 @@ function londonYMD(offsetDays=0){
 }
 
 function londonISODate(offsetDays=0){
-  return londonYMD(offsetDays); // alias, explicit name for TfL code readability
+  return londonYMD(offsetDays);
 }
 
 function shortDate(iso){ // DD/MM
@@ -206,7 +224,7 @@ function pairAtoms(depB,depR,arrB,arrR,status){
   return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
 }
 
-/* helpers for bolding confirmed estimates (BL) */
+/* helpers for bolding confirmed estimates (BL rows) */
 const fmtStrong = (hhmm, isEst) => {
   const t = fmt(hhmm);
   return isEst ? `<strong>${t}</strong>` : t;
@@ -269,18 +287,19 @@ function renderBL(data){
   const runDate = (data.runDate || "").slice(0,10);
   const dayLabel = data.dayLabel || (runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—")));
 
-  /* Direct: SRC-IMW — day label (sub) → title → time → platforms */
-  out.push(`<div class="direct-block">`);
+  /* CHANGE: SRC-IMW “card” matches TL style (smaller overall), with colour changing */
+  out.push(`<div class="mini-stack">`);
   out.push(`<div class="sub">${dayLabel}</div>`);
-  out.push(`<div class="title">SRC-IMW (direct)</div>`);
+  out.push(`<div class="route-mini">SRC-IMW</div>`); <!-- dash matches STE-WIM -->
 
   if(data.direct){
     const st = data.direct.status==='cancelled' ? 'cancelled' : (data.direct.status==='delayed' ? 'delayed' : 'on_time');
+    const cls = st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 
     if(st==='cancelled'){
-      out.push(`<div class="time-xs red direct-line"><span class="strike">${fmt(data.direct.srcDep || data.direct.srcDepUsed)}</span> CANCELLED</div>`);
+      out.push(`<div class="time-mini red"><span class="strike">${fmt(data.direct.srcDep || data.direct.srcDepUsed)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-xs direct-line">${rangeStrong(
+      out.push(`<div class="time-mini ${cls}">${rangeStrong(
         data.direct.srcDepUsed || data.direct.srcDep,
         !!data.direct.srcDepIsEstimated,
         data.direct.imwArrUsed || data.direct.imwArr,
@@ -288,11 +307,12 @@ function renderBL(data){
       )}</div>`);
     }
 
-    out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+    out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
   }else{
     const dp = data.datePath || runDate || "";
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${dp}</div>`);
   }
+
   out.push(`</div><div class="direct-gap"></div>`);
 
   /* Headers */
@@ -310,6 +330,9 @@ function renderBL(data){
     const warn = (leg.transferViable === false) || (leg.transferOk === false);
     const transClass = warn ? "trans-warn" : "trans-ok";
     const minsTxt = (leg.transferMins==null) ? "—" : `${leg.transferMins}m`;
+
+    // Colour the CLJ->IMW range based on the chosen connection status
+    const connCls = (leg.status==='cancelled') ? 'red' : (leg.status==='delayed' ? 'amber' : 'green');
 
     out.push(`
       <div class="xrow">
@@ -331,7 +354,7 @@ function renderBL(data){
         </div>
 
         <div class="right-cell">
-          <div class="time-xs">${rangeStrong(
+          <div class="time-xs ${connCls}">${rangeStrong(
             leg.cljDepUsed || leg.cljDep, !!leg.cljDepIsEstimated,
             leg.imwArrUsed || leg.imwArr, !!leg.imwArrIsEstimated
           )}</div>
@@ -366,12 +389,17 @@ function isRouteRelevant(text){
   return ROUTE_STOPS.every(s => t.includes(s.toLowerCase()));
 }
 
-function extractRelevantPlanned(lineStatuses){
-  const hits = [];
+/* Slightly broader detection (still silent if nothing) */
+function plannedCandidatesFromLine(line){
+  const out = [];
 
-  for(const ls of (lineStatuses||[])){
+  for(const ls of (line?.lineStatuses || [])){
     const vps = ls.validityPeriods || [];
-    const isPlanned = vps.some(v => (v.category||"") === "PlannedWork") || /planned/i.test(ls.statusSeverityDescription||"");
+    const isPlanned =
+      vps.some(v => (v.category||"") === "PlannedWork") ||
+      /planned|engineering|works|closure/i.test(ls.statusSeverityDescription||"") ||
+      /planned|engineering|works|closure/i.test(ls.reason||"");
+
     if(!isPlanned) continue;
 
     const reason = ls.reason || "";
@@ -385,24 +413,32 @@ function extractRelevantPlanned(lineStatuses){
     const affectedRoutes = (ls.disruption?.affectedRoutes || []).map(r => r.name).filter(Boolean).join(" · ");
 
     const blob = [reason, disruptionTexts, affectedStops, affectedRoutes].filter(Boolean).join(" | ");
-
-    const relevant =
-      (affectedStops && isRouteRelevant(affectedStops)) ||
-      isRouteRelevant(blob);
-
-    if(!relevant) continue;
-
-    const start = vps[0]?.fromDate || "";
-    const end = vps[0]?.toDate || "";
-    const when = start ? `${shortDate(start)}${end ? "–"+shortDate(end) : ""}` : "";
-
-    const core = (ls.statusSeverityDescription || "Planned works").trim();
-    const msg = reason ? `${core}: ${reason}` : (disruptionTexts ? `${core}: ${disruptionTexts}` : core);
-
-    hits.push({ when, msg });
+    out.push({ blob, vps, core: (ls.statusSeverityDescription || "Planned works").trim() });
   }
 
-  hits.sort((a,b) => (a.msg.length - b.msg.length));
+  for(const d of (line?.disruptions || [])){
+    const txt = [d.description, d.summary, d.detail].filter(Boolean).join(" — ");
+    if(!/planned|engineering|works|closure/i.test(txt)) continue;
+    out.push({ blob: txt, vps: [], core: "Planned works" });
+  }
+
+  return out;
+}
+
+function extractRelevantPlannedFromLine(line){
+  const hits = [];
+  for(const item of plannedCandidatesFromLine(line)){
+    if(!isRouteRelevant(item.blob)) continue;
+
+    const start = item.vps[0]?.fromDate || "";
+    const end = item.vps[0]?.toDate || "";
+    const when = start ? `${shortDate(start)}${end ? "–"+shortDate(end) : ""}` : "";
+
+    // Keep it tight; the CSS will ellipsis anyway.
+    const msg = item.blob ? `${item.core}: ${item.blob}` : item.core;
+    hits.push({ when, msg });
+  }
+  hits.sort((a,b) => a.msg.length - b.msg.length);
   return hits[0] || null;
 }
 
@@ -411,7 +447,7 @@ async function loadDistrictPlanned(){
   if(!el) return;
 
   const start = londonISODate(0);
-  const end = londonISODate(7);
+  const end = londonISODate(14);
 
   const url = `https://api.tfl.gov.uk/Line/${TFL_LINE_ID}/Status/${start}/to/${end}?detail=true`;
 
@@ -421,9 +457,7 @@ async function loadDistrictPlanned(){
     const js = await r.json();
 
     const line = Array.isArray(js) ? js[0] : null;
-    const ls = line?.lineStatuses || [];
-
-    const planned = extractRelevantPlanned(ls);
+    const planned = extractRelevantPlannedFromLine(line);
 
     if(planned){
       const prefix = planned.when ? `Planned (${planned.when})` : "Planned";
@@ -434,7 +468,6 @@ async function loadDistrictPlanned(){
       el.textContent = "";
     }
   }catch(_e){
-    // fail silent: never break the tile if TfL blocks/limits
     el.style.display = "none";
     el.textContent = "";
   }
