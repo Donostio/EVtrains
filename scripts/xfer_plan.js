@@ -1,165 +1,380 @@
 #!/usr/bin/env node
 /**
- * Build xfer.json:
- *  - TODAY only (Europe/London)
- *  - Direct SRC->IMW at 07:25
- *  - Next 3 SRC->CLJ strictly AFTER 07:25 and <= 08:45
- *  - For each first leg, up to 2 CLJ->IMW connections departing >= 1 min after CLJ arrival
- *  - RID-first for detail; fallback to service/{uid}/{runDate} with ±1 day
+ * xfer_plan.js
+ * Morning window planner for:
+ *   SRC -> CLJ  then  CLJ -> IMW
+ *
+ * Rules:
+ *  - Window fixed: 07:25–08:45 (local London)
+ *  - After 08:45 local, switch to tomorrow's window
+ *  - Stitch using realtime estimates where available:
+ *      transferMins = dep(CLJ->IMW, realtime if available else booked)
+ *                   - arr(SRC->CLJ, realtime if available else booked)
+ *    Accept if transferMins >= 1
+ *  - UI hinting:
+ *      *IsEstimated = true when a realtime time exists (i.e. "confirmed estimate")
  */
 
-const https = require('https');
-const fs = require('fs');
+const https = require("https");
+const fs = require("fs");
 
-const USER = process.env.RTT_USERNAME || '';
-const PASS = process.env.RTT_PASSWORD || '';
-if (!USER || !PASS) { console.error('Missing RTT credentials'); process.exit(1); }
-
-const LONDON_TZ = process.env.LONDON_TZ || 'Europe/London';
-const SRC='SRC', CLJ='CLJ', IMW='IMW';
-
-const WINDOW_START = process.env.WINDOW_START || '0725'; // anchor
-const WINDOW_END   = process.env.WINDOW_END   || '0845'; // cut-off
-
-/* ---------- time (today only) ---------- */
-function localYMD(tz){
-  const p=new Intl.DateTimeFormat('en-GB',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
-  return `${p.find(x=>x.type==='year').value}-${p.find(x=>x.type==='month').value}-${p.find(x=>x.type==='day').value}`;
+const USER = process.env.RTT_USERNAME || "";
+const PASS = process.env.RTT_PASSWORD || "";
+if (!USER || !PASS) {
+  console.error("Missing RTT credentials");
+  process.exit(1);
 }
-function isoShiftDays(iso, days){ const d=new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); }
-function toMin(hhmm){ return parseInt(hhmm.slice(0,2),10)*60 + parseInt(hhmm.slice(2,4),10); }
+
+const LONDON_TZ = process.env.LONDON_TZ || "Europe/London";
+const SRC = "SRC", CLJ = "CLJ", IMW = "IMW";
+
+const WINDOW_START = process.env.WINDOW_START || "0725";
+const WINDOW_END   = process.env.WINDOW_END   || "0845";
+
+// Viability + warning thresholds (minutes)
+const MIN_TRANSFER_VIABLE = Number.parseInt(process.env.MIN_TRANSFER_VIABLE || "1", 10);
+const MIN_TRANSFER_OK     = Number.parseInt(process.env.MIN_TRANSFER_OK || "4", 10);
+
+/* ---------- time helpers (London local) ---------- */
+function getLocalParts(date = new Date(), tz = LONDON_TZ) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce((acc, p) => ((acc[p.type] = p.value), acc), {});
+}
+
+function localNowHHMM() {
+  const p = getLocalParts();
+  return `${p.hour}${p.minute}`;
+}
+
+function localYMD(offsetDays = 0) {
+  const p = getLocalParts();
+  // anchor at UTC noon to avoid DST edge weirdness
+  const dt = new Date(Date.UTC(+p.year, +p.month - 1, +p.day, 12, 0, 0));
+  dt.setUTCDate(dt.getUTCDate() + offsetDays);
+  const q = getLocalParts(dt);
+  return `${q.year}-${q.month}-${q.day}`; // YYYY-MM-DD
+}
+
+function toMin(hhmm) {
+  if (!hhmm || hhmm.length !== 4) return null;
+  return parseInt(hhmm.slice(0, 2), 10) * 60 + parseInt(hhmm.slice(2, 4), 10);
+}
+function hhmmFromMin(m) {
+  const h = String(Math.floor(m / 60)).padStart(2, "0");
+  const mm = String(m % 60).padStart(2, "0");
+  return h + mm;
+}
+function isoToPath(iso) {
+  const [y, m, d] = iso.split("-");
+  return `${y}/${m}/${d}`;
+}
+function isoShiftDays(iso, days) {
+  const dt = new Date(iso + "T00:00:00Z");
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
 
 /* ---------- net ---------- */
-function fetchJSON(url){
-  const auth = Buffer.from(`${USER}:${PASS}`).toString('base64');
-  return new Promise((resolve,reject)=>{
-    https.get(url,{headers:{Authorization:`Basic ${auth}`,'User-Agent':'evtrains'}},res=>{
-      let data=''; res.on('data',d=>data+=d);
-      res.on('end',()=>{ if(res.statusCode<200||res.statusCode>=300) return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
-        try{ resolve(JSON.parse(data)); }catch(e){ reject(e); }});
-    }).on('error',reject);
+function fetchJSON(url) {
+  const auth = Buffer.from(`${USER}:${PASS}`).toString("base64");
+  return new Promise((resolve, reject) => {
+    https
+      .get(
+        url,
+        {
+          headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+            "User-Agent": "evtrains",
+          },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (d) => (data += d));
+          res.on("end", () => {
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+              return reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage} for ${url}`));
+            }
+            try {
+              resolve(JSON.parse(data));
+            } catch (e) {
+              reject(e);
+            }
+          });
+        }
+      )
+      .on("error", reject);
   });
 }
 
-/* ---------- logic ---------- */
-function statusFrom(o,d){
-  if (o?.isCancelled || d?.isCancelled) return 'cancelled';
-  const depLate = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture!==o.gbttBookedDeparture;
-  const arrLate = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival!==d.gbttBookedArrival;
-  return (depLate||arrLate) ? 'delayed' : 'on_time';
+async function search(from, to, datePath, hhmm) {
+  const base = `https://api.rtt.io/api/v1/json/search/${from}/to/${to}/${datePath}`;
+  const url = hhmm ? `${base}/${hhmm}` : base;
+  const js = await fetchJSON(url);
+  return js?.services || [];
 }
-const stop = (detail, crs) => (detail?.locations||[]).find(l=>l.crs===crs) || {};
 
-async function detailBySvc(svc, iso){
-  if (svc.rid){
-    try { return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${svc.rid}`); }
-    catch(_e){}
+const stop = (detail, crs) => (detail?.locations || []).find((l) => l.crs === crs) || {};
+
+async function detailBySvc(svc, iso) {
+  // Prefer RID if present, but never require it.
+  if (svc.rid) {
+    try {
+      return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${svc.rid}`);
+    } catch (_e) {}
   }
-  const runISO = (svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate)) ? svc.runDate : iso;
-  const mk = (u,d)=>`https://api.rtt.io/api/v1/json/service/${u}/${d}`;
-  try{ return await fetchJSON(mk(svc.serviceUid, runISO)); }
-  catch(e){
-    if (!String(e).includes('HTTP 404')) throw e;
-    for (const dlt of [+1,-1]){ try{ return await fetchJSON(mk(svc.serviceUid, isoShiftDays(runISO,dlt))); }catch(_e){} }
+
+  const runISO =
+    svc.runDate && /^\d{4}-\d{2}-\d{2}$/.test(svc.runDate) ? svc.runDate : iso;
+
+  const mk = (u, d) => `https://api.rtt.io/api/v1/json/service/${u}/${d.replace(/-/g, "/")}`;
+
+  try {
+    return await fetchJSON(mk(svc.serviceUid, runISO));
+  } catch (e) {
+    if (!String(e).includes("HTTP 404")) throw e;
+    for (const dlt of [+1, -1]) {
+      try {
+        return await fetchJSON(mk(svc.serviceUid, isoShiftDays(runISO, dlt)));
+      } catch (_e) {}
+    }
     throw e;
   }
 }
 
-async function search(from,to,datePath,hhmm){
-  const base = `https://api.rtt.io/api/v1/json/search/${from}/to/${to}/${datePath}`;
-  const url  = hhmm ? `${base}/${hhmm}` : base;
-  const js = await fetchJSON(url);
-  return js?.services||[];
+/* ---------- status + time selection ---------- */
+function statusFrom(o, d) {
+  if (o?.isCancelled || d?.isCancelled) return "cancelled";
+  const depVar = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture !== o.gbttBookedDeparture;
+  const arrVar = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival !== d.gbttBookedArrival;
+  return (depVar || arrVar) ? "delayed" : "on_time";
+}
+
+function pickDepTimes(loc) {
+  const booked = loc?.gbttBookedDeparture || null;
+  const rt = loc?.realtimeDeparture || null;
+  return {
+    booked,
+    realtime: rt,
+    used: rt || booked,
+    isEstimated: !!rt, // “confirmed estimate”
+  };
+}
+
+function pickArrTimes(loc) {
+  const booked = loc?.gbttBookedArrival || null;
+  const rt = loc?.realtimeArrival || null;
+  return {
+    booked,
+    realtime: rt,
+    used: rt || booked,
+    isEstimated: !!rt, // “confirmed estimate”
+  };
 }
 
 /* ---------- main ---------- */
-(async ()=>{
-  const iso = localYMD(LONDON_TZ);   // TODAY only
-  const [y,m,d] = iso.split('-'); const datePath = `${y}/${m}/${d}`;
-  console.log(`[xfer_plan] today=${iso} window=${WINDOW_START}-${WINDOW_END}`);
+(async () => {
+  const nowHHMM = localNowHHMM();
+  const todayISO = localYMD(0);
+  const tomorrowISO = localYMD(1);
 
-  const out = { generatedAt:new Date().toISOString(), datePath, window:{start:WINDOW_START,end:WINDOW_END}, direct:null, legs:[] };
+  // Switch to tomorrow after the end of the window
+  const useTomorrow = toMin(nowHHMM) > toMin(WINDOW_END);
+  const targetISO = useTomorrow ? tomorrowISO : todayISO;
+  const datePath = isoToPath(targetISO);
 
-  // --- Direct SRC -> IMW 07:25 ---
-  try{
+  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END}`);
+
+  const out = {
+    generatedAt: new Date().toISOString(),
+    datePath,
+    runDate: targetISO,
+    dayLabel: useTomorrow ? "Tomorrow" : "Today",
+    window: { start: WINDOW_START, end: WINDOW_END },
+    thresholds: { viable: MIN_TRANSFER_VIABLE, ok: MIN_TRANSFER_OK },
+    direct: null,
+    legs: [],
+  };
+
+  // --- Direct SRC -> IMW at 07:25 (optional) ---
+  try {
     const svcs = await search(SRC, IMW, datePath, WINDOW_START);
-    const svc  = svcs.find(s => ((s?.locationDetail?.gbttBookedDeparture||s?.gbttBookedDeparture)===WINDOW_START) && s.rid)
-              || svcs.find(s => s.rid)
-              || svcs[0];
-    if (svc){
-      const det = await detailBySvc(svc, iso);
-      const o=stop(det,SRC), iw=stop(det,IMW);
+    const svc =
+      svcs.find((s) => (s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture) === WINDOW_START) ||
+      svcs[0];
+
+    if (svc && svc.serviceUid) {
+      const det = await detailBySvc(svc, targetISO);
+      const o = stop(det, SRC), iw = stop(det, IMW);
+
+      const dep = pickDepTimes(o);
+      const arr = pickArrTimes(iw);
+
       out.direct = {
         status: statusFrom(o, iw),
-        srcDep: o.gbttBookedDeparture || null,
-        srcDepReal: o.realtimeDeparture || null,
+
+        srcDep: dep.booked,
+        srcDepReal: dep.realtime,
+        srcDepUsed: dep.used,
+        srcDepIsEstimated: dep.isEstimated,
         srcPlat: o.platform || null,
-        imwArr: iw.gbttBookedArrival || null,
-        imwArrReal: iw.realtimeArrival || null,
-        imwPlat: iw.platform || null
+
+        imwArr: arr.booked,
+        imwArrReal: arr.realtime,
+        imwArrUsed: arr.used,
+        imwArrIsEstimated: arr.isEstimated,
+        imwPlat: iw.platform || null,
       };
     }
-  }catch(e){ console.warn('Direct fetch error:', String(e)); }
+  } catch (e) {
+    console.warn("Direct fetch error:", String(e));
+  }
 
   // --- First legs: next 3 SRC -> CLJ strictly AFTER 07:25 and <= 08:45 ---
-  try{
+  try {
     const all = await search(SRC, CLJ, datePath, WINDOW_START);
-    const after = all
-      .filter(s=>{
-        const dep = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
-        return dep && toMin(dep) > toMin(WINDOW_START) && toMin(dep) <= toMin(WINDOW_END);
-      })
-      .filter(s => !!s.rid); // prefer services we can detail by RID (stable later in day)
 
-    const legs=[];
-    for (const svc of after){
+    const firstLegCandidates = all
+      .filter((s) => {
+        const dep = s?.locationDetail?.gbttBookedDeparture || s?.gbttBookedDeparture;
+        const m = toMin(dep);
+        return dep && m > toMin(WINDOW_START) && m <= toMin(WINDOW_END);
+      })
+      .filter((s) => !!s.serviceUid); // reliable
+
+    const legs = [];
+
+    for (const svc of firstLegCandidates) {
       if (legs.length >= 3) break;
-      let det; try{ det = await detailBySvc(svc, iso); }catch(e){ console.warn('First-leg detail skip:', String(e)); continue; }
-      const o=stop(det,SRC), cj=stop(det,CLJ);
+
+      let det;
+      try {
+        det = await detailBySvc(svc, targetISO);
+      } catch (e) {
+        console.warn("First-leg detail skip:", String(e));
+        continue;
+      }
+
+      const o = stop(det, SRC);
+      const cj = stop(det, CLJ);
+
       if (!o?.gbttBookedDeparture || !cj?.gbttBookedArrival) continue;
 
-      // Connections: CLJ -> IMW depart >= (arrReal||arrBooked)+1 min
-      const arrMin = toMin(cj.realtimeArrival || cj.gbttBookedArrival);
-      const startHHMM = String(Math.floor((arrMin+1)/60)).padStart(2,'0') + String((arrMin+1)%60).padStart(2,'0');
+      const dep1 = pickDepTimes(o);
+      const arr1 = pickArrTimes(cj);
 
-      const conns=[];
-      try{
+      const arrMin = toMin(arr1.used);
+      if (arrMin == null) continue;
+
+      const startHHMM = hhmmFromMin(arrMin + MIN_TRANSFER_VIABLE);
+
+      // Find the EARLIEST CLJ->IMW departure that satisfies transfer >= 1
+      let best = null;
+
+      try {
         const cand = await search(CLJ, IMW, datePath, startHHMM);
-        for (const c of cand){
-          if (conns.length >= 2) break;
-          if (!c?.rid && !c?.serviceUid) continue;
-          let cd; try{ cd = await detailBySvc(c, iso); }catch(_e){ continue; }
-          const cjs=stop(cd,CLJ), imw=stop(cd,IMW);
+
+        for (const c of cand) {
+          if (!c?.serviceUid && !c?.rid) continue;
+
+          let cd;
+          try {
+            cd = await detailBySvc(c, targetISO);
+          } catch (_e) {
+            continue;
+          }
+
+          const cjs = stop(cd, CLJ);
+          const imw = stop(cd, IMW);
+
           if (!cjs?.gbttBookedDeparture || !imw?.gbttBookedArrival) continue;
-          const depMin = toMin(cjs.realtimeDeparture || cjs.gbttBookedDeparture);
-          if (depMin < arrMin + 1) continue;
-          conns.push({
-            status: statusFrom(cjs, imw),
-            cljDep: cjs.gbttBookedDeparture || null,
-            cljDepReal: cjs.realtimeDeparture || null,
-            cljPlat: cjs.platform || null,
-            imwArr: imw.gbttBookedArrival || null,
-            imwArrReal: imw.realtimeArrival || null,
-            imwPlat: imw.platform || null
-          });
+
+          const dep2 = pickDepTimes(cjs);
+          const arr2 = pickArrTimes(imw);
+
+          const depMin = toMin(dep2.used);
+          if (depMin == null) continue;
+          if (depMin < arrMin + MIN_TRANSFER_VIABLE) continue;
+
+          if (!best || depMin < toMin(best.cljDepUsed)) {
+            best = {
+              status: statusFrom(cjs, imw),
+
+              cljDep: dep2.booked,
+              cljDepReal: dep2.realtime,
+              cljDepUsed: dep2.used,
+              cljDepIsEstimated: dep2.isEstimated,
+              cljPlatDep: cjs.platform || null,
+
+              imwArr: arr2.booked,
+              imwArrReal: arr2.realtime,
+              imwArrUsed: arr2.used,
+              imwArrIsEstimated: arr2.isEstimated,
+              imwPlat: imw.platform || null,
+            };
+          }
         }
-      }catch(_e){}
+      } catch (_e) {}
+
+      const transferMins =
+        best && toMin(best.cljDepUsed) != null ? (toMin(best.cljDepUsed) - arrMin) : null;
+
+      // Viable >= 1; “OK” colour threshold >= 4 (CLJ reality)
+      const transferViable = transferMins != null && transferMins >= MIN_TRANSFER_VIABLE;
+      const transferOk = transferMins != null && transferMins >= MIN_TRANSFER_OK;
 
       legs.push({
-        srcDep: o.gbttBookedDeparture || null,
-        srcDepReal: o.realtimeDeparture || null,
+        // SRC->CLJ
+        srcDep: dep1.booked,
+        srcDepReal: dep1.realtime,
+        srcDepUsed: dep1.used,
+        srcDepIsEstimated: dep1.isEstimated,
         srcPlat: o.platform || null,
-        cljArr: cj.gbttBookedArrival || null,
-        cljArrReal: cj.realtimeArrival || null,
+
+        cljArr: arr1.booked,
+        cljArrReal: arr1.realtime,
+        cljArrUsed: arr1.used,
+        cljArrIsEstimated: arr1.isEstimated,
         cljPlatArr: cj.platform || null,
-        connections: conns
+
+        // Chosen CLJ->IMW connection
+        cljDep: best?.cljDep || null,
+        cljDepReal: best?.cljDepReal || null,
+        cljDepUsed: best?.cljDepUsed || null,
+        cljDepIsEstimated: best?.cljDepIsEstimated || false,
+        cljPlatDep: best?.cljPlatDep || null,
+
+        imwArr: best?.imwArr || null,
+        imwArrReal: best?.imwArrReal || null,
+        imwArrUsed: best?.imwArrUsed || null,
+        imwArrIsEstimated: best?.imwArrIsEstimated || false,
+        imwPlat: best?.imwPlat || null,
+
+        status: best?.status || "not_found",
+
+        // Transfer metrics
+        transferMins,
+        transferViable,
+        transferOk,
       });
     }
 
     out.legs = legs;
-  }catch(e){ console.warn('First-leg fetch error:', String(e)); }
+  } catch (e) {
+    console.warn("First-leg fetch error:", String(e));
+  }
 
-  fs.writeFileSync('xfer.json', JSON.stringify(out,null,2));
-  console.log('Wrote xfer.json (today-only, next three AFTER 07:25).');
+  fs.writeFileSync("xfer.json", JSON.stringify(out, null, 2));
+  console.log("Wrote xfer.json.");
 })();
+
 
