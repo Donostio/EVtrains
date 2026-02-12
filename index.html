@@ -50,7 +50,6 @@ const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
 const LONDON_TZ = "Europe/London";
 const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 
-/* helpers for time rendering */
 function timeAtom(booked,real,status){
   if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
   if(status==='delayed'&&real&&real!==booked) return `<span class="amber">${fmt(real)}</span> <span class="sub"><span class="strike">${fmt(booked)}</span></span>`;
@@ -63,7 +62,6 @@ function pairAtoms(depB,depR,arrB,arrR,status){
 }
 
 function londonYMD(offsetDays=0){
-  // YYYY-MM-DD in Europe/London (independent of viewer's device TZ)
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: LONDON_TZ, year:'numeric', month:'2-digit', day:'2-digit'
   }).formatToParts(new Date());
@@ -81,16 +79,16 @@ function renderTL(s){
     el.innerHTML = `<div class="tl-stack"><div class="route">STE-WIM</div><div class="time red">Error</div></div>`;
     return;
   }
+
   const o=s.origin||{}, d=s.destination||{};
-  const status=(o.isCancelled||d.isCancelled)?'cancelled':(s.status==='delayed'?'delayed':'on_time');
+  const status=(o.isCancelled||d.isCancelled||s.status==='cancelled')?'cancelled':(s.status==='delayed'?'delayed':'on_time');
   const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
   const arrB=d.bookedArrival, arrR=d.realtimeArrival;
 
-  // Label for which day's 07:44 we are showing
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
-  const runDate = (s.runDate || s.date || "").slice(0,10);
-  const dayLabel = runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—"));
+  const runDateRaw = (s.runDate || s.date || "").slice(0,10);
+  const dayLabel = runDateRaw===today ? "Today" : (runDateRaw===tomorrow ? "Tomorrow" : (runDateRaw || "—"));
 
   const content = status==='cancelled'
     ? `<div class="time red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`
@@ -105,8 +103,17 @@ function renderTL(s){
     ${plat}
   </div>`;
 }
-async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
-loadTL(); setInterval(loadTL,60000);
+
+async function loadTL(){
+  try{
+    const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});
+    renderTL(await r.json());
+  }catch{
+    renderTL({error:true});
+  }
+}
+loadTL();
+setInterval(loadTL,60000);
 
 /* ---------- BL (SRC→CLJ→IMW) ---------- */
 function renderBL(dat){
@@ -135,9 +142,17 @@ function renderBL(dat){
     <tbody>${rows}</tbody>
   </table>`;
 }
-async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
-loadBL(); setInterval(loadBL,120000);
+
+async function loadBL(){
+  try{
+    const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});
+    renderBL(await r.json());
+  }catch{
+    renderBL({error:true});
+  }
+}
+loadBL();
+setInterval(loadBL,120000);
 </script>
 </body>
 </html>
-
