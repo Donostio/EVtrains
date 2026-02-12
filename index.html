@@ -12,7 +12,7 @@
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
 
-  /* 2×2 centered board */
+  /* 2×2 centred board */
   .board{
     height:100%;
     max-width:1320px;
@@ -98,6 +98,32 @@
   .trans-ok{ color:var(--fg) } .trans-warn{ color:var(--red) }
   .transfer .arrow{ margin-left:.35em }
 
+  /* ---------- District tile overlays ---------- */
+  .dl-wrap{ position:relative; width:100%; height:100%; }
+  .dl-label{
+    position:absolute;
+    top:10px;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:5;
+    text-align:center;
+    pointer-events:none;
+  }
+  .dl-planned{
+    position:absolute;
+    bottom:10px;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:5;
+    text-align:center;
+    pointer-events:none;
+    max-width:92%;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    display:none;
+  }
+
   /* ---------- Responsive ---------- */
   @media (max-width: 900px){
     .board{ gap:16px; padding:16px }
@@ -123,9 +149,16 @@
     <section class="tile"><div class="inner" id="tl_app">Loading…</div></section>
 
     <!-- TOP RIGHT -->
-    <section class="tile"><div class="inner">
-      <iframe src="https://donostio.github.io/DLstatus/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
-    </div></section>
+    <section class="tile">
+      <div class="inner dl-wrap">
+        <div class="dl-label sub">Now</div>
+        <div id="dl_planned" class="dl-planned sub"></div>
+        <iframe
+          src="https://donostio.github.io/DLstatus/?embed=1&theme=dark"
+          loading="lazy"
+          referrerpolicy="no-referrer"></iframe>
+      </div>
+    </section>
 
     <!-- BOTTOM LEFT -->
     <section class="tile"><div class="inner" id="bl_app">Loading…</div></section>
@@ -150,6 +183,15 @@ function londonYMD(offsetDays=0){
   const d = +parts.find(p=>p.type==="day").value;
   const dt = new Date(Date.UTC(y, m-1, d + offsetDays));
   return dt.toISOString().slice(0,10);
+}
+
+function londonISODate(offsetDays=0){
+  return londonYMD(offsetDays); // alias, explicit name for TfL code readability
+}
+
+function shortDate(iso){ // DD/MM
+  if(!iso || iso.length < 10) return iso || "";
+  return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
 }
 
 /* helpers for time rendering (TL) */
@@ -201,8 +243,16 @@ function renderTL(s){
     ${plat}
   </div>`;
 }
-async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
-loadTL(); setInterval(loadTL,60000);
+async function loadTL(){
+  try{
+    const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});
+    renderTL(await r.json());
+  }catch{
+    renderTL({error:true});
+  }
+}
+loadTL();
+setInterval(loadTL,60000);
 
 /* ---------- BL (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
@@ -214,7 +264,6 @@ function renderBL(data){
 
   const out=[];
 
-  // Day label for transfer block: prefer data.dayLabel, else infer from runDate/datePath
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
   const runDate = (data.runDate || "").slice(0,10);
@@ -231,7 +280,6 @@ function renderBL(data){
     if(st==='cancelled'){
       out.push(`<div class="time-xs red direct-line"><span class="strike">${fmt(data.direct.srcDep || data.direct.srcDepUsed)}</span> CANCELLED</div>`);
     }else{
-      // Bold confirmed estimates (srcDepIsEstimated / imwArrIsEstimated)
       out.push(`<div class="time-xs direct-line">${rangeStrong(
         data.direct.srcDepUsed || data.direct.srcDep,
         !!data.direct.srcDepIsEstimated,
@@ -242,7 +290,6 @@ function renderBL(data){
 
     out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
   }else{
-    // Prefer datePath if that is what your generator includes
     const dp = data.datePath || runDate || "";
     out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${dp}</div>`);
   }
@@ -260,7 +307,6 @@ function renderBL(data){
 
   /* Rows */
   for(const leg of (data.legs||[])){
-    // Transfer display: warn if transferOk === false OR transferViable === false
     const warn = (leg.transferViable === false) || (leg.transferOk === false);
     const transClass = warn ? "trans-warn" : "trans-ok";
     const minsTxt = (leg.transferMins==null) ? "—" : `${leg.transferMins}m`;
@@ -307,7 +353,95 @@ async function loadBL(){
     renderBL({error:true});
   }
 }
-loadBL(); setInterval(loadBL,120000);
+loadBL();
+setInterval(loadBL,120000);
+
+/* ---------- TfL planned engineering works (route-relevant) ---------- */
+const TFL_LINE_ID = "district";
+const ROUTE_STOPS = ["Wimbledon", "Parsons Green"];
+
+function isRouteRelevant(text){
+  if(!text) return false;
+  const t = text.toLowerCase();
+  return ROUTE_STOPS.every(s => t.includes(s.toLowerCase()));
+}
+
+function extractRelevantPlanned(lineStatuses){
+  const hits = [];
+
+  for(const ls of (lineStatuses||[])){
+    const vps = ls.validityPeriods || [];
+    const isPlanned = vps.some(v => (v.category||"") === "PlannedWork") || /planned/i.test(ls.statusSeverityDescription||"");
+    if(!isPlanned) continue;
+
+    const reason = ls.reason || "";
+    const disruptionTexts = (ls.disruption && [
+      ls.disruption.description,
+      ls.disruption.summary,
+      ls.disruption.detail
+    ].filter(Boolean).join(" — ")) || "";
+
+    const affectedStops = (ls.disruption?.affectedStops || []).map(s => s.commonName).filter(Boolean).join(" · ");
+    const affectedRoutes = (ls.disruption?.affectedRoutes || []).map(r => r.name).filter(Boolean).join(" · ");
+
+    const blob = [reason, disruptionTexts, affectedStops, affectedRoutes].filter(Boolean).join(" | ");
+
+    const relevant =
+      (affectedStops && isRouteRelevant(affectedStops)) ||
+      isRouteRelevant(blob);
+
+    if(!relevant) continue;
+
+    const start = vps[0]?.fromDate || "";
+    const end = vps[0]?.toDate || "";
+    const when = start ? `${shortDate(start)}${end ? "–"+shortDate(end) : ""}` : "";
+
+    const core = (ls.statusSeverityDescription || "Planned works").trim();
+    const msg = reason ? `${core}: ${reason}` : (disruptionTexts ? `${core}: ${disruptionTexts}` : core);
+
+    hits.push({ when, msg });
+  }
+
+  hits.sort((a,b) => (a.msg.length - b.msg.length));
+  return hits[0] || null;
+}
+
+async function loadDistrictPlanned(){
+  const el = document.getElementById("dl_planned");
+  if(!el) return;
+
+  const start = londonISODate(0);
+  const end = londonISODate(7);
+
+  const url = `https://api.tfl.gov.uk/Line/${TFL_LINE_ID}/Status/${start}/to/${end}?detail=true`;
+
+  try{
+    const r = await fetch(url, { cache:"no-store" });
+    if(!r.ok) throw new Error(`TfL HTTP ${r.status}`);
+    const js = await r.json();
+
+    const line = Array.isArray(js) ? js[0] : null;
+    const ls = line?.lineStatuses || [];
+
+    const planned = extractRelevantPlanned(ls);
+
+    if(planned){
+      const prefix = planned.when ? `Planned (${planned.when})` : "Planned";
+      el.textContent = `${prefix}: ${planned.msg}`;
+      el.style.display = "block";
+    }else{
+      el.style.display = "none";
+      el.textContent = "";
+    }
+  }catch(_e){
+    // fail silent: never break the tile if TfL blocks/limits
+    el.style.display = "none";
+    el.textContent = "";
+  }
+}
+
+loadDistrictPlanned();
+setInterval(loadDistrictPlanned, 30*60*1000);
 </script>
 </body>
 </html>
