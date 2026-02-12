@@ -28,7 +28,7 @@
   .inner{ width:100%; height:100%; display:grid; place-items:center }
   iframe{ width:100%; height:100%; border:none; background:#000 }
 
-  /* ---------- TL (STE→WIM) — zero-gap stack ---------- */
+  /* ---------- TL (STE→WIM) ---------- */
   #tl_app{ text-align:center }
   .tl-stack{
     display:flex;
@@ -142,7 +142,6 @@ const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'g
 const LONDON_TZ = "Europe/London";
 
 function londonYMD(offsetDays=0){
-  // YYYY-MM-DD for Europe/London regardless of device TZ
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: LONDON_TZ, year:"numeric", month:"2-digit", day:"2-digit"
   }).formatToParts(new Date());
@@ -153,7 +152,7 @@ function londonYMD(offsetDays=0){
   return dt.toISOString().slice(0,10);
 }
 
-/* helpers for time rendering */
+/* helpers for time rendering (TL) */
 function timeAtom(booked,real,status){
   if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
   if(status==='delayed'&&real&&real!==booked)
@@ -164,6 +163,13 @@ function pairAtoms(depB,depR,arrB,arrR,status){
   const c=colorFor(status);
   return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
 }
+
+/* helpers for bolding confirmed estimates (BL) */
+const fmtStrong = (hhmm, isEst) => {
+  const t = fmt(hhmm);
+  return isEst ? `<strong>${t}</strong>` : t;
+};
+const rangeStrong = (a, aEst, b, bEst) => `${fmtStrong(a, aEst)}–${fmtStrong(b, bEst)}`;
 
 /* ---------- TL (STE→WIM) ---------- */
 function renderTL(s){
@@ -201,21 +207,44 @@ loadTL(); setInterval(loadTL,60000);
 /* ---------- BL (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
   const el=document.getElementById('bl_app');
-  if(!data||data.error){ el.innerHTML=`<div class="time-xs red">No data</div>`; return; }
+  if(!data||data.error){
+    el.innerHTML=`<div class="time-xs red">No data</div>`;
+    return;
+  }
+
   const out=[];
 
-  /* Direct: SRC-IMW — title → time → platforms (centered) */
-  out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)</div>`);
+  // Day label for transfer block: prefer data.dayLabel, else infer from runDate/datePath
+  const today = londonYMD(0);
+  const tomorrow = londonYMD(1);
+  const runDate = (data.runDate || "").slice(0,10);
+  const dayLabel = data.dayLabel || (runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—")));
+
+  /* Direct: SRC-IMW — day label (sub) → title → time → platforms */
+  out.push(`<div class="direct-block">`);
+  out.push(`<div class="sub">${dayLabel}</div>`);
+  out.push(`<div class="title">SRC-IMW (direct)</div>`);
+
   if(data.direct){
-    const st=data.direct.status==='delayed'?'delayed':(data.direct.status==='cancelled'?'cancelled':'on_time');
+    const st = data.direct.status==='cancelled' ? 'cancelled' : (data.direct.status==='delayed' ? 'delayed' : 'on_time');
+
     if(st==='cancelled'){
-      out.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`);
+      out.push(`<div class="time-xs red direct-line"><span class="strike">${fmt(data.direct.srcDep || data.direct.srcDepUsed)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`);
+      // Bold confirmed estimates (srcDepIsEstimated / imwArrIsEstimated)
+      out.push(`<div class="time-xs direct-line">${rangeStrong(
+        data.direct.srcDepUsed || data.direct.srcDep,
+        !!data.direct.srcDepIsEstimated,
+        data.direct.imwArrUsed || data.direct.imwArr,
+        !!data.direct.imwArrIsEstimated
+      )}</div>`);
     }
+
     out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
   }else{
-    out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
+    // Prefer datePath if that is what your generator includes
+    const dp = data.datePath || runDate || "";
+    out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${dp}</div>`);
   }
   out.push(`</div><div class="direct-gap"></div>`);
 
@@ -231,32 +260,53 @@ function renderBL(data){
 
   /* Rows */
   for(const leg of (data.legs||[])){
+    // Transfer display: warn if transferOk === false OR transferViable === false
+    const warn = (leg.transferViable === false) || (leg.transferOk === false);
+    const transClass = warn ? "trans-warn" : "trans-ok";
+    const minsTxt = (leg.transferMins==null) ? "—" : `${leg.transferMins}m`;
+
     out.push(`
       <div class="xrow">
         <div class="left-cell">
-          <div class="time-xs">${fmt(leg.srcDep)}–${fmt(leg.cljArr)}</div>
+          <div class="time-xs">${rangeStrong(
+            leg.srcDepUsed || leg.srcDep, !!leg.srcDepIsEstimated,
+            leg.cljArrUsed || leg.cljArr, !!leg.cljArrIsEstimated
+          )}</div>
           <div class="sub plat-both">Plat ${leg.srcPlat||"?"} · Plat ${leg.cljPlatArr||"?"}</div>
         </div>
+
         <div class="mid-cell">
           <div class="pair">
-            <div class="transfer ${leg.transferOk?'trans-ok':'trans-warn'}">
+            <div class="transfer ${transClass}">
               <strong>Plat</strong> ${leg.cljPlatArr||"?"} <span class="arrow">→</span> <strong>Plat</strong> ${leg.cljPlatDep||"?"}
             </div>
-            <div class="sub">${leg.transferMins}m</div>
+            <div class="sub">${minsTxt}</div>
           </div>
         </div>
+
         <div class="right-cell">
-          <div class="time-xs">${fmt(leg.cljDep)}–${fmt(leg.imwArr)}</div>
+          <div class="time-xs">${rangeStrong(
+            leg.cljDepUsed || leg.cljDep, !!leg.cljDepIsEstimated,
+            leg.imwArrUsed || leg.imwArr, !!leg.imwArrIsEstimated
+          )}</div>
           <div class="sub">Plat ${leg.cljPlatDep||"?"} · Plat ${leg.imwPlat||"?"}</div>
         </div>
       </div>
     `);
   }
-  out.push(`</div>`);
 
+  out.push(`</div>`);
   el.innerHTML = out.join("");
 }
-async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
+
+async function loadBL(){
+  try{
+    const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});
+    renderBL(await r.json());
+  }catch{
+    renderBL({error:true});
+  }
+}
 loadBL(); setInterval(loadBL,120000);
 </script>
 </body>
