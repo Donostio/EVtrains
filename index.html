@@ -9,67 +9,160 @@
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
     --green:#58d27a; --amber:#ffa000; --red:#ff5252;
   }
-  html,body{height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
-  .wrap{height:100%; display:flex; flex-direction:column; padding:28px 36px; box-sizing:border-box;}
-  .row{display:flex; gap:22px; align-items:flex-start;}
-  .card{flex:1; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:24px; padding:22px 24px; min-height:220px;}
-  .title{font-size:18px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); margin:0 0 10px;}
-  .tl-stack{display:flex; flex-direction:column; align-items:center; gap:8px;}
-  .route{font-size:46px; font-weight:800; letter-spacing:0.05em;}
-  .time{font-size:38px; font-weight:700;}
-  .sub{font-size:18px; color:var(--muted);}
-  .green{color:var(--green);}
-  .amber{color:var(--amber);}
-  .red{color:var(--red);}
-  .strike{text-decoration:line-through;}
-  .tiny{font-size:14px; color:var(--muted); margin-top:10px}
-  table{width:100%; border-collapse:collapse; margin-top:8px;}
-  th,td{padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.08); text-align:left;}
-  th{color:var(--muted); font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:0.06em;}
-  td{font-size:16px;}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+
+  /* 2×2 centered board */
+  .board{
+    height:100%;
+    max-width:1320px;
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:24px;
+    padding:24px;
+    box-sizing:border-box;
+  }
+  .tile{ background:#000; color:var(--fg); display:grid; place-items:center; overflow:hidden }
+  .inner{ width:100%; height:100%; display:grid; place-items:center }
+  iframe{ width:100%; height:100%; border:none; background:#000 }
+
+  /* ---------- TL (STE→WIM) — zero-gap stack ---------- */
+  #tl_app{ text-align:center }
+  .tl-stack{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:0.02rem;
+  }
+  .route{ font-size:clamp(34px,6.5vw,74px); font-weight:900; letter-spacing:0.06em }
+  .time{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em }
+  .sub{   font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
+  .muted{ color:var(--muted) }
+  .green{ color:var(--green) }
+  .amber{ color:var(--amber) }
+  .red{ color:var(--red) }
+  .small{ font-size:0.85em }
+  .strike{ text-decoration:line-through }
+
+  /* ---------- BL (xfer) ---------- */
+  #bl_app{ width:100%; height:100%; padding:22px 26px; box-sizing:border-box }
+  .title{
+    font-size:clamp(12px,1.5vw,18px);
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  .time-xs{ font-size:clamp(16px,2.2vw,28px); font-weight:800 }
+  .direct-block{ text-align:center }
+  .direct-line{ margin-top:10px }
+  .direct-plats{ margin-top:6px }
+  .direct-gap{ height:18px }
+
+  .xfer-wrap{ width:100% }
+  .xfer-header{
+    display:grid;
+    grid-template-columns: 1fr 0.9fr 1fr;
+    column-gap:14px;
+    align-items:end;
+    margin-bottom:8px;
+  }
+  .xrow{
+    display:grid;
+    grid-template-columns: 1fr 0.9fr 1fr;
+    column-gap:14px;
+    align-items:center;
+    padding:4px 0;
+  }
+
+  /* Left column: times then BOTH platforms underneath */
+  .left-cell{ display:flex; flex-direction:column; align-items:center; text-align:center }
+  .plat-both{ margin-top:.12rem }
+
+  /* Middle & Right columns */
+  .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-end; }
+  .right-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:flex-start; text-align:left }
+
+  /* A connection row: transfer | times kept together */
+  .pair{
+    display:grid;
+    grid-template-columns:max-content max-content;
+    align-items:baseline;
+    column-gap:8px;
+    white-space:nowrap;
+  }
+  .transfer{ font-size:clamp(12px,1.7vw,18px); text-align:right }
+  .transfer strong{ font-weight:800 }
+  .trans-ok{ color:var(--fg) } .trans-warn{ color:var(--red) }
+  .transfer .arrow{ margin-left:.35em }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px){
+    .board{ gap:16px; padding:16px }
+    .xrow{ column-gap:12px }
+  }
+  @media (max-width: 700px){
+    .board{ grid-template-rows: 0.8fr 1.2fr; gap:12px; padding:12px }
+    .mid-cell,.right-cell{ gap:1rem }
+  }
+  @media (max-height: 480px) and (orientation: landscape){
+    .tl-stack .time{ font-size:clamp(24px,4.8vw,56px) }
+    .time-xs{ font-size:clamp(12px,1.6vw,20px) }
+    .title{ font-size:clamp(10px,1.3vw,16px) }
+    .tl-stack .sub{ font-size:clamp(10px,1.2vw,14px) }
+    .xrow{ column-gap:10px; padding:4px 0 }
+    .pair{ column-gap:8px }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="row">
-    <div class="card">
-      <h2 class="title">Direct</h2>
-      <div id="tl_app"></div>
-      <div class="tiny" id="tl_meta"></div>
-    </div>
-    <div class="card">
-      <h2 class="title">Transfer</h2>
-      <div id="bl_app"></div>
-      <div class="tiny" id="bl_meta"></div>
-    </div>
+  <div class="board">
+    <!-- TOP LEFT -->
+    <section class="tile"><div class="inner" id="tl_app">Loading…</div></section>
+
+    <!-- TOP RIGHT -->
+    <section class="tile"><div class="inner">
+      <iframe src="https://donostio.github.io/DLstatus/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
+    </div></section>
+
+    <!-- BOTTOM LEFT -->
+    <section class="tile"><div class="inner" id="bl_app">Loading…</div></section>
+
+    <!-- BOTTOM RIGHT -->
+    <section class="tile"><div class="inner">
+      <iframe src="https://donostio.github.io/EvieWeather/?embed=1&theme=dark" loading="lazy" referrerpolicy="no-referrer"></iframe>
+    </div></section>
   </div>
-</div>
 
 <script>
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
-const LONDON_TZ = "Europe/London";
 const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
+const LONDON_TZ = "Europe/London";
 
+function londonYMD(offsetDays=0){
+  // YYYY-MM-DD for Europe/London regardless of device TZ
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: LONDON_TZ, year:"numeric", month:"2-digit", day:"2-digit"
+  }).formatToParts(new Date());
+  const y = +parts.find(p=>p.type==="year").value;
+  const m = +parts.find(p=>p.type==="month").value;
+  const d = +parts.find(p=>p.type==="day").value;
+  const dt = new Date(Date.UTC(y, m-1, d + offsetDays));
+  return dt.toISOString().slice(0,10);
+}
+
+/* helpers for time rendering */
 function timeAtom(booked,real,status){
   if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
-  if(status==='delayed'&&real&&real!==booked) return `<span class="amber">${fmt(real)}</span> <span class="sub"><span class="strike">${fmt(booked)}</span></span>`;
-  if(real&&real!==booked) return `<span>${fmt(real)}</span> <span class="sub"><span class="strike">${fmt(booked)}</span></span>`;
-  return `<span>${fmt(booked)}</span>`;
+  if(status==='delayed'&&real&&real!==booked)
+    return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
+  return `<span class="green">${fmt(booked)}</span>`;
 }
 function pairAtoms(depB,depR,arrB,arrR,status){
   const c=colorFor(status);
   return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
-}
-
-function londonYMD(offsetDays=0){
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: LONDON_TZ, year:'numeric', month:'2-digit', day:'2-digit'
-  }).formatToParts(new Date());
-  const y = +parts.find(p=>p.type==='year').value;
-  const m = +parts.find(p=>p.type==='month').value;
-  const d = +parts.find(p=>p.type==='day').value;
-  const dt = new Date(Date.UTC(y, m-1, d + offsetDays));
-  return dt.toISOString().slice(0,10);
 }
 
 /* ---------- TL (STE→WIM) ---------- */
@@ -79,7 +172,6 @@ function renderTL(s){
     el.innerHTML = `<div class="tl-stack"><div class="route">STE-WIM</div><div class="time red">Error</div></div>`;
     return;
   }
-
   const o=s.origin||{}, d=s.destination||{};
   const status=(o.isCancelled||d.isCancelled||s.status==='cancelled')?'cancelled':(s.status==='delayed'?'delayed':'on_time');
   const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
@@ -87,8 +179,8 @@ function renderTL(s){
 
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
-  const runDateRaw = (s.runDate || s.date || "").slice(0,10);
-  const dayLabel = runDateRaw===today ? "Today" : (runDateRaw===tomorrow ? "Tomorrow" : (runDateRaw || "—"));
+  const runDate = (s.runDate || s.date || "").slice(0,10);
+  const dayLabel = runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—"));
 
   const content = status==='cancelled'
     ? `<div class="time red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`
@@ -103,56 +195,69 @@ function renderTL(s){
     ${plat}
   </div>`;
 }
-
-async function loadTL(){
-  try{
-    const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});
-    renderTL(await r.json());
-  }catch{
-    renderTL({error:true});
-  }
-}
-loadTL();
-setInterval(loadTL,60000);
+async function loadTL(){try{const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});renderTL(await r.json());}catch{renderTL({error:true});}}
+loadTL(); setInterval(loadTL,60000);
 
 /* ---------- BL (SRC→CLJ→IMW) ---------- */
-function renderBL(dat){
+function renderBL(data){
   const el=document.getElementById('bl_app');
-  if(!dat||dat.error){
-    el.innerHTML = `<div class="tl-stack"><div class="route">SRC-IMW</div><div class="time red">Error</div></div>`;
-    return;
-  }
-  const legs=dat.legs||[];
-  if(!legs.length){
-    el.innerHTML = `<div class="tl-stack"><div class="route">SRC-IMW</div><div class="sub">No options</div></div>`;
-    return;
-  }
-  const rows = legs.map(L=>{
-    const a=L.a||{}, b=L.b||{};
-    const st=L.status||'';
-    const c=colorFor(st==='cancelled'?'cancelled':(st==='delayed'?'delayed':'on_time'));
-    return `<tr>
-      <td>${fmt(a.dep)}–${fmt(a.arr)}<br><span class="sub">${a.from}→${a.to}</span></td>
-      <td>${fmt(b.dep)}–${fmt(b.arr)}<br><span class="sub">${b.from}→${b.to}</span></td>
-      <td class="${c}">${st.replace('_',' ')}</td>
-    </tr>`;
-  }).join("");
-  el.innerHTML = `<table>
-    <thead><tr><th>Leg 1</th><th>Leg 2</th><th>Status</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
+  if(!data||data.error){ el.innerHTML=`<div class="time-xs red">No data</div>`; return; }
+  const out=[];
 
-async function loadBL(){
-  try{
-    const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});
-    renderBL(await r.json());
-  }catch{
-    renderBL({error:true});
+  /* Direct: SRC-IMW — title → time → platforms (centered) */
+  out.push(`<div class="direct-block"><div class="title">SRC-IMW (direct)</div>`);
+  if(data.direct){
+    const st=data.direct.status==='delayed'?'delayed':(data.direct.status==='cancelled'?'cancelled':'on_time');
+    if(st==='cancelled'){
+      out.push(`<div class="time-xs red direct-line">${timeAtom(data.direct.srcDep,null,'cancelled')} CANCELLED</div>`);
+    }else{
+      out.push(`<div class="time-xs direct-line">${pairAtoms(data.direct.srcDep,data.direct.srcDepReal,data.direct.imwArr,data.direct.imwArrReal,st)}</div>`);
+    }
+    out.push(`<div class="sub direct-plats">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
+  }else{
+    out.push(`<div class="sub muted">No direct SRC→IMW 07:25 service for ${data.datePath}</div>`);
   }
+  out.push(`</div><div class="direct-gap"></div>`);
+
+  /* Headers */
+  out.push(`
+    <div class="xfer-wrap">
+      <div class="xfer-header">
+        <div class="title">SRC-CLJ</div>
+        <div class="title">Trans' for IMW</div>
+        <div class="title">CLJ-IMW</div>
+      </div>
+  `);
+
+  /* Rows */
+  for(const leg of (data.legs||[])){
+    out.push(`
+      <div class="xrow">
+        <div class="left-cell">
+          <div class="time-xs">${fmt(leg.srcDep)}–${fmt(leg.cljArr)}</div>
+          <div class="sub plat-both">Plat ${leg.srcPlat||"?"} · Plat ${leg.cljPlatArr||"?"}</div>
+        </div>
+        <div class="mid-cell">
+          <div class="pair">
+            <div class="transfer ${leg.transferOk?'trans-ok':'trans-warn'}">
+              <strong>Plat</strong> ${leg.cljPlatArr||"?"} <span class="arrow">→</span> <strong>Plat</strong> ${leg.cljPlatDep||"?"}
+            </div>
+            <div class="sub">${leg.transferMins}m</div>
+          </div>
+        </div>
+        <div class="right-cell">
+          <div class="time-xs">${fmt(leg.cljDep)}–${fmt(leg.imwArr)}</div>
+          <div class="sub">Plat ${leg.cljPlatDep||"?"} · Plat ${leg.imwPlat||"?"}</div>
+        </div>
+      </div>
+    `);
+  }
+  out.push(`</div>`);
+
+  el.innerHTML = out.join("");
 }
-loadBL();
-setInterval(loadBL,120000);
+async function loadBL(){try{const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});renderBL(await r.json());}catch{renderBL({error:true});}}
+loadBL(); setInterval(loadBL,120000);
 </script>
 </body>
 </html>
