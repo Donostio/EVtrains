@@ -46,7 +46,7 @@
     justify-content:center;
     gap:0.02rem;
   }
-  /* STE-WIM half-size (as requested) */
+  /* STE-WIM half-size */
   .route{ font-size:clamp(18px,3.3vw,38px); font-weight:900; letter-spacing:0.06em }
   .time{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em }
 
@@ -70,7 +70,7 @@
     text-align:center;
   }
   .route-mini{ font-size:clamp(14px,2.6vw,30px); font-weight:900; letter-spacing:0.06em }
-  .time-mini{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em } /* match TL time style */
+  .time-mini{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em }
   .direct-gap{ height:18px }
 
   .xfer-wrap{ width:100% }
@@ -128,7 +128,7 @@
   }
   .dl-label{
     position:absolute;
-    top:72px; /* lowered nearer the roundel */
+    top:72px;
     left:50%;
     transform:translateX(-50%);
     z-index:5;
@@ -202,33 +202,58 @@ function shortDate(iso){ // DD/MM
   return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
 }
 
-/* ---------------- time rendering rules ----------------
-White = scheduled (no realtime)
-Green = forecast/confirmed (realtime present and equals booked OR just present)
-Red = delayed (realtime present and differs)
-Red with strike = cancelled
-*/
-function classify(booked, real){
-  if(!real) return "scheduled";
-  if(!booked) return "forecast"; // realtime exists; no booked to compare
-  return (real !== booked) ? "delayed" : "forecast";
+/* =========================================================
+   TIME COLOUR RULES (exactly as you specified)
+
+   White = scheduled (no realtime)
+   Green = forecast/confirmed (realtime present and equals booked OR just present)
+   Red = delayed (realtime present and differs)
+   Red + strike = cancelled
+   ========================================================= */
+
+/* ---------- A) TL (status.json): booked vs realtime fields ---------- */
+function classifyTL(booked, realtime){
+  if(!realtime) return "scheduled";
+  if(!booked) return "forecast";
+  return (realtime !== booked) ? "delayed" : "forecast";
 }
-function cssForClass(cls){
+function cssFor(cls){
   if(cls === "delayed") return "red";
   if(cls === "forecast") return "green";
-  return ""; // scheduled -> white (default)
+  return ""; // scheduled -> white
 }
-function timeRange(depB, depR, arrB, arrR, cancelled){
+function timeRangeTL(depB, depR, arrB, arrR, cancelled){
   if(cancelled){
     return `<span class="red"><span class="strike">${fmt(depB)}</span>–<span class="strike">${fmt(arrB)}</span></span>`;
   }
-  const c1 = classify(depB, depR);
-  const c2 = classify(arrB, arrR);
-  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed" :
-              (c1 === "forecast" || c2 === "forecast") ? "forecast" : "scheduled";
-  const css = cssForClass(cls);
-  const dep = depR || depB;
-  const arr = arrR || arrB;
+  const c1 = classifyTL(depB, depR);
+  const c2 = classifyTL(arrB, arrR);
+  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed"
+            : (c1 === "forecast" || c2 === "forecast") ? "forecast"
+            : "scheduled";
+  const css = cssFor(cls);
+  return `<span class="${css}">${fmt(depR || depB)}–${fmt(arrR || arrB)}</span>`;
+}
+
+/* ---------- B) BL (xfer.json): booked vs used + IsEstimated ---------- */
+function classifyXfer(booked, used, isEstimated){
+  if(!isEstimated) return "scheduled";
+  if(!booked || !used) return "forecast";
+  return (used !== booked) ? "delayed" : "forecast";
+}
+function timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, cancelled){
+  if(cancelled){
+    return `<span class="red"><span class="strike">${fmt(depB)}</span>–<span class="strike">${fmt(arrB)}</span></span>`;
+  }
+  const c1 = classifyXfer(depB, depU, !!depEst);
+  const c2 = classifyXfer(arrB, arrU, !!arrEst);
+  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed"
+            : (c1 === "forecast" || c2 === "forecast") ? "forecast"
+            : "scheduled";
+  const css = cssFor(cls);
+
+  const dep = (depEst ? depU : depB);
+  const arr = (arrEst ? arrU : arrB);
   return `<span class="${css}">${fmt(dep)}–${fmt(arr)}</span>`;
 }
 
@@ -255,7 +280,7 @@ function renderTL(s){
 
   const content = cancelled
     ? `<div class="time red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`
-    : `<div class="time">${timeRange(depB, depR, arrB, arrR, false)}</div>`;
+    : `<div class="time">${timeRangeTL(depB, depR, arrB, arrR, false)}</div>`;
 
   const plat = (o.platform || d.platform)
     ? `<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`
@@ -294,7 +319,7 @@ function renderBL(data){
   const runDate = (data.runDate || "").slice(0,10);
   const dayLabel = data.dayLabel || (runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—")));
 
-  /* Direct block: TL-like card */
+  /* Direct block */
   out.push(`<div class="mini-stack">`);
   out.push(`<div class="sub">${dayLabel}</div>`);
   out.push(`<div class="route-mini">SRC-IMW</div>`);
@@ -302,15 +327,18 @@ function renderBL(data){
   if(data.direct){
     const cancelled = data.direct.status === "cancelled";
 
-    const depB = data.direct.srcDep || data.direct.srcDepUsed || null;
-    const depR = data.direct.srcDepReal || null;
-    const arrB = data.direct.imwArr || data.direct.imwArrUsed || null;
-    const arrR = data.direct.imwArrReal || null;
+    const depB = data.direct.srcDep || null;
+    const depU = data.direct.srcDepUsed || depB;
+    const depEst = !!data.direct.srcDepIsEstimated;
+
+    const arrB = data.direct.imwArr || null;
+    const arrU = data.direct.imwArrUsed || arrB;
+    const arrEst = !!data.direct.imwArrIsEstimated;
 
     if(cancelled){
       out.push(`<div class="time-mini red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-mini">${timeRange(depB, depR, arrB, arrR, false)}</div>`);
+      out.push(`<div class="time-mini">${timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, false)}</div>`);
     }
 
     out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
@@ -331,19 +359,26 @@ function renderBL(data){
       </div>
   `);
 
-  /* Rows: apply the same classification */
+  /* Rows */
   for(const leg of (data.legs || [])){
-    // SRC->CLJ
-    const dep1B = leg.srcDep || leg.srcDepUsed || null;
-    const dep1R = leg.srcDepReal || null;
-    const arr1B = leg.cljArr || leg.cljArrUsed || null;
-    const arr1R = leg.cljArrReal || null;
+    // SRC->CLJ (booked vs used + isEstimated)
+    const dep1B = leg.srcDep || null;
+    const dep1U = leg.srcDepUsed || dep1B;
+    const dep1E = !!leg.srcDepIsEstimated;
+
+    const arr1B = leg.cljArr || null;
+    const arr1U = leg.cljArrUsed || arr1B;
+    const arr1E = !!leg.cljArrIsEstimated;
 
     // CLJ->IMW
-    const dep2B = leg.cljDep || leg.cljDepUsed || null;
-    const dep2R = leg.cljDepReal || null;
-    const arr2B = leg.imwArr || leg.imwArrUsed || null;
-    const arr2R = leg.imwArrReal || null;
+    const dep2B = leg.cljDep || null;
+    const dep2U = leg.cljDepUsed || dep2B;
+    const dep2E = !!leg.cljDepIsEstimated;
+
+    const arr2B = leg.imwArr || null;
+    const arr2U = leg.imwArrUsed || arr2B;
+    const arr2E = !!leg.imwArrIsEstimated;
+
     const cancelled2 = leg.status === "cancelled";
 
     const warn = (leg.transferViable === false) || (leg.transferOk === false);
@@ -353,7 +388,7 @@ function renderBL(data){
     out.push(`
       <div class="xrow">
         <div class="left-cell">
-          <div class="time-xs">${timeRange(dep1B, dep1R, arr1B, arr1R, false)}</div>
+          <div class="time-xs">${timeRangeXfer(dep1B, dep1U, dep1E, arr1B, arr1U, arr1E, false)}</div>
           <div class="sub plat-both">Plat ${leg.srcPlat||"?"} · Plat ${leg.cljPlatArr||"?"}</div>
         </div>
 
@@ -367,7 +402,7 @@ function renderBL(data){
         </div>
 
         <div class="right-cell">
-          <div class="time-xs">${timeRange(dep2B, dep2R, arr2B, arr2R, cancelled2)}</div>
+          <div class="time-xs">${timeRangeXfer(dep2B, dep2U, dep2E, arr2B, arr2U, arr2E, cancelled2)}</div>
           <div class="sub">Plat ${leg.cljPlatDep||"?"} · Plat ${leg.imwPlat||"?"}</div>
         </div>
       </div>
