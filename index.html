@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
-    --green:#58d27a; --amber:#ffa000; --red:#ff5252;
+    --green:#58d27a; --red:#ff5252; --amber:#ffa000;
   }
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -32,8 +32,8 @@
   .sub{   font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
   .muted{ color:var(--muted) }
   .green{ color:var(--green) }
-  .amber{ color:var(--amber) }
   .red{ color:var(--red) }
+  .amber{ color:var(--amber) } /* unused now, kept */
   .small{ font-size:0.85em }
   .strike{ text-decoration:line-through }
 
@@ -46,8 +46,7 @@
     justify-content:center;
     gap:0.02rem;
   }
-
-  /* CHANGE: make STE-WIM ~half size */
+  /* STE-WIM half-size (as requested) */
   .route{ font-size:clamp(18px,3.3vw,38px); font-weight:900; letter-spacing:0.06em }
   .time{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em }
 
@@ -59,11 +58,9 @@
     text-transform:uppercase;
     color:var(--muted);
   }
+  .time-xs{ font-size:clamp(16px,2.2vw,28px); font-weight:800; letter-spacing:0.02em }
 
-  /* Keep the rows readable */
-  .time-xs{ font-size:clamp(16px,2.2vw,28px); font-weight:800 }
-
-  /* NEW: “mini card” style matching TL */
+  /* Mini “card” style matching TL */
   .mini-stack{
     display:flex;
     flex-direction:column;
@@ -73,8 +70,7 @@
     text-align:center;
   }
   .route-mini{ font-size:clamp(14px,2.6vw,30px); font-weight:900; letter-spacing:0.06em }
-  .time-mini{  font-size:clamp(18px,3.0vw,34px); font-weight:800; letter-spacing:0.02em }
-
+  .time-mini{  font-size:clamp(26px,5.0vw,60px); font-weight:800; letter-spacing:0.02em } /* match TL time style */
   .direct-gap{ height:18px }
 
   .xfer-wrap{ width:100% }
@@ -116,8 +112,6 @@
 
   /* ---------- District tile overlays ---------- */
   .dl-wrap{ position:relative; width:100%; height:100%; }
-
-  /* CHANGE: planned line ABOVE “Now”, both lowered nearer the roundel */
   .dl-planned{
     position:absolute;
     top:44px;
@@ -134,7 +128,7 @@
   }
   .dl-label{
     position:absolute;
-    top:72px;                 /* lowered */
+    top:72px; /* lowered nearer the roundel */
     left:50%;
     transform:translateX(-50%);
     z-index:5;
@@ -188,8 +182,8 @@
   </div>
 
 <script>
+/* ---------------- basics ---------------- */
 const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
-const colorFor = st => st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
 const LONDON_TZ = "Europe/London";
 
 function londonYMD(offsetDays=0){
@@ -202,57 +196,70 @@ function londonYMD(offsetDays=0){
   const dt = new Date(Date.UTC(y, m-1, d + offsetDays));
   return dt.toISOString().slice(0,10);
 }
-
-function londonISODate(offsetDays=0){
-  return londonYMD(offsetDays);
-}
-
+function londonISODate(offsetDays=0){ return londonYMD(offsetDays); }
 function shortDate(iso){ // DD/MM
   if(!iso || iso.length < 10) return iso || "";
   return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
 }
 
-/* helpers for time rendering (TL) */
-function timeAtom(booked,real,status){
-  if(status==='cancelled') return `<span class="red"><span class="strike">${fmt(booked)}</span></span>`;
-  if(status==='delayed'&&real&&real!==booked)
-    return `<span class="muted small">(${fmt(booked)})</span> <span class="amber">${fmt(real)}</span>`;
-  return `<span class="green">${fmt(booked)}</span>`;
+/* ---------------- time rendering rules ----------------
+White = scheduled (no realtime)
+Green = forecast/confirmed (realtime present and equals booked OR just present)
+Red = delayed (realtime present and differs)
+Red with strike = cancelled
+*/
+function classify(booked, real){
+  if(!real) return "scheduled";
+  if(!booked) return "forecast"; // realtime exists; no booked to compare
+  return (real !== booked) ? "delayed" : "forecast";
 }
-function pairAtoms(depB,depR,arrB,arrR,status){
-  const c=colorFor(status);
-  return `${timeAtom(depB,depR,status)} <span class="${c}">-</span> ${timeAtom(arrB,arrR,status)}`;
+function cssForClass(cls){
+  if(cls === "delayed") return "red";
+  if(cls === "forecast") return "green";
+  return ""; // scheduled -> white (default)
+}
+function timeRange(depB, depR, arrB, arrR, cancelled){
+  if(cancelled){
+    return `<span class="red"><span class="strike">${fmt(depB)}</span>–<span class="strike">${fmt(arrB)}</span></span>`;
+  }
+  const c1 = classify(depB, depR);
+  const c2 = classify(arrB, arrR);
+  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed" :
+              (c1 === "forecast" || c2 === "forecast") ? "forecast" : "scheduled";
+  const css = cssForClass(cls);
+  const dep = depR || depB;
+  const arr = arrR || arrB;
+  return `<span class="${css}">${fmt(dep)}–${fmt(arr)}</span>`;
 }
 
-/* helpers for bolding confirmed estimates (BL rows) */
-const fmtStrong = (hhmm, isEst) => {
-  const t = fmt(hhmm);
-  return isEst ? `<strong>${t}</strong>` : t;
-};
-const rangeStrong = (a, aEst, b, bEst) => `${fmtStrong(a, aEst)}–${fmtStrong(b, bEst)}`;
-
-/* ---------- TL (STE→WIM) ---------- */
+/* ---------------- TL (STE→WIM) ---------------- */
 function renderTL(s){
-  const el=document.getElementById('tl_app');
-  if(!s||s.error){
+  const el = document.getElementById("tl_app");
+  if(!s || s.error){
     el.innerHTML = `<div class="tl-stack"><div class="route">STE-WIM</div><div class="time red">Error</div></div>`;
     return;
   }
-  const o=s.origin||{}, d=s.destination||{};
-  const status=(o.isCancelled||d.isCancelled||s.status==='cancelled')?'cancelled':(s.status==='delayed'?'delayed':'on_time');
-  const depB=o.bookedDeparture||s.gbttBookedDeparture, depR=o.realtimeDeparture;
-  const arrB=d.bookedArrival, arrR=d.realtimeArrival;
+
+  const o = s.origin || {}, d = s.destination || {};
+  const cancelled = !!(o.isCancelled || d.isCancelled || s.status === "cancelled");
+
+  const depB = o.bookedDeparture || s.gbttBookedDeparture || null;
+  const depR = o.realtimeDeparture || null;
+  const arrB = d.bookedArrival || null;
+  const arrR = d.realtimeArrival || null;
 
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
   const runDate = (s.runDate || s.date || "").slice(0,10);
   const dayLabel = runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—"));
 
-  const content = status==='cancelled'
+  const content = cancelled
     ? `<div class="time red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`
-    : `<div class="time">${pairAtoms(depB,depR,arrB,arrR,status)}</div>`;
+    : `<div class="time">${timeRange(depB, depR, arrB, arrR, false)}</div>`;
 
-  const plat=(o.platform||d.platform)?`<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`:"";
+  const plat = (o.platform || d.platform)
+    ? `<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`
+    : "";
 
   el.innerHTML = `<div class="tl-stack">
     <div class="sub">${dayLabel}</div>
@@ -263,48 +270,47 @@ function renderTL(s){
 }
 async function loadTL(){
   try{
-    const r=await fetch('./status.json?ts='+Date.now(),{cache:'no-store'});
+    const r = await fetch("./status.json?ts="+Date.now(), {cache:"no-store"});
     renderTL(await r.json());
   }catch{
     renderTL({error:true});
   }
 }
 loadTL();
-setInterval(loadTL,60000);
+setInterval(loadTL, 60000);
 
-/* ---------- BL (SRC→CLJ→IMW) ---------- */
+/* ---------------- BL (SRC→CLJ→IMW) ---------------- */
 function renderBL(data){
-  const el=document.getElementById('bl_app');
-  if(!data||data.error){
-    el.innerHTML=`<div class="time-xs red">No data</div>`;
+  const el = document.getElementById("bl_app");
+  if(!data || data.error){
+    el.innerHTML = `<div class="time-xs red">No data</div>`;
     return;
   }
 
-  const out=[];
+  const out = [];
 
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
   const runDate = (data.runDate || "").slice(0,10);
   const dayLabel = data.dayLabel || (runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—")));
 
-  /* CHANGE: SRC-IMW “card” matches TL style (smaller overall), with colour changing */
+  /* Direct block: TL-like card */
   out.push(`<div class="mini-stack">`);
   out.push(`<div class="sub">${dayLabel}</div>`);
-  out.push(`<div class="route-mini">SRC-IMW</div>`); <!-- dash matches STE-WIM -->
+  out.push(`<div class="route-mini">SRC-IMW</div>`);
 
   if(data.direct){
-    const st = data.direct.status==='cancelled' ? 'cancelled' : (data.direct.status==='delayed' ? 'delayed' : 'on_time');
-    const cls = st==='cancelled' ? 'red' : (st==='delayed' ? 'amber' : 'green');
+    const cancelled = data.direct.status === "cancelled";
 
-    if(st==='cancelled'){
-      out.push(`<div class="time-mini red"><span class="strike">${fmt(data.direct.srcDep || data.direct.srcDepUsed)}</span> CANCELLED</div>`);
+    const depB = data.direct.srcDep || data.direct.srcDepUsed || null;
+    const depR = data.direct.srcDepReal || null;
+    const arrB = data.direct.imwArr || data.direct.imwArrUsed || null;
+    const arrR = data.direct.imwArrReal || null;
+
+    if(cancelled){
+      out.push(`<div class="time-mini red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-mini ${cls}">${rangeStrong(
-        data.direct.srcDepUsed || data.direct.srcDep,
-        !!data.direct.srcDepIsEstimated,
-        data.direct.imwArrUsed || data.direct.imwArr,
-        !!data.direct.imwArrIsEstimated
-      )}</div>`);
+      out.push(`<div class="time-mini">${timeRange(depB, depR, arrB, arrR, false)}</div>`);
     }
 
     out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
@@ -325,22 +331,29 @@ function renderBL(data){
       </div>
   `);
 
-  /* Rows */
-  for(const leg of (data.legs||[])){
+  /* Rows: apply the same classification */
+  for(const leg of (data.legs || [])){
+    // SRC->CLJ
+    const dep1B = leg.srcDep || leg.srcDepUsed || null;
+    const dep1R = leg.srcDepReal || null;
+    const arr1B = leg.cljArr || leg.cljArrUsed || null;
+    const arr1R = leg.cljArrReal || null;
+
+    // CLJ->IMW
+    const dep2B = leg.cljDep || leg.cljDepUsed || null;
+    const dep2R = leg.cljDepReal || null;
+    const arr2B = leg.imwArr || leg.imwArrUsed || null;
+    const arr2R = leg.imwArrReal || null;
+    const cancelled2 = leg.status === "cancelled";
+
     const warn = (leg.transferViable === false) || (leg.transferOk === false);
     const transClass = warn ? "trans-warn" : "trans-ok";
-    const minsTxt = (leg.transferMins==null) ? "—" : `${leg.transferMins}m`;
-
-    // Colour the CLJ->IMW range based on the chosen connection status
-    const connCls = (leg.status==='cancelled') ? 'red' : (leg.status==='delayed' ? 'amber' : 'green');
+    const minsTxt = (leg.transferMins == null) ? "—" : `${leg.transferMins}m`;
 
     out.push(`
       <div class="xrow">
         <div class="left-cell">
-          <div class="time-xs">${rangeStrong(
-            leg.srcDepUsed || leg.srcDep, !!leg.srcDepIsEstimated,
-            leg.cljArrUsed || leg.cljArr, !!leg.cljArrIsEstimated
-          )}</div>
+          <div class="time-xs">${timeRange(dep1B, dep1R, arr1B, arr1R, false)}</div>
           <div class="sub plat-both">Plat ${leg.srcPlat||"?"} · Plat ${leg.cljPlatArr||"?"}</div>
         </div>
 
@@ -354,10 +367,7 @@ function renderBL(data){
         </div>
 
         <div class="right-cell">
-          <div class="time-xs ${connCls}">${rangeStrong(
-            leg.cljDepUsed || leg.cljDep, !!leg.cljDepIsEstimated,
-            leg.imwArrUsed || leg.imwArr, !!leg.imwArrIsEstimated
-          )}</div>
+          <div class="time-xs">${timeRange(dep2B, dep2R, arr2B, arr2R, cancelled2)}</div>
           <div class="sub">Plat ${leg.cljPlatDep||"?"} · Plat ${leg.imwPlat||"?"}</div>
         </div>
       </div>
@@ -370,16 +380,16 @@ function renderBL(data){
 
 async function loadBL(){
   try{
-    const r=await fetch('./xfer.json?ts='+Date.now(),{cache:'no-store'});
+    const r = await fetch("./xfer.json?ts="+Date.now(), {cache:"no-store"});
     renderBL(await r.json());
   }catch{
     renderBL({error:true});
   }
 }
 loadBL();
-setInterval(loadBL,120000);
+setInterval(loadBL, 120000);
 
-/* ---------- TfL planned engineering works (route-relevant) ---------- */
+/* ---------------- TfL planned engineering works (route-relevant) ---------------- */
 const TFL_LINE_ID = "district";
 const ROUTE_STOPS = ["Wimbledon", "Parsons Green"];
 
@@ -389,7 +399,6 @@ function isRouteRelevant(text){
   return ROUTE_STOPS.every(s => t.includes(s.toLowerCase()));
 }
 
-/* Slightly broader detection (still silent if nothing) */
 function plannedCandidatesFromLine(line){
   const out = [];
 
@@ -399,7 +408,6 @@ function plannedCandidatesFromLine(line){
       vps.some(v => (v.category||"") === "PlannedWork") ||
       /planned|engineering|works|closure/i.test(ls.statusSeverityDescription||"") ||
       /planned|engineering|works|closure/i.test(ls.reason||"");
-
     if(!isPlanned) continue;
 
     const reason = ls.reason || "";
@@ -408,11 +416,10 @@ function plannedCandidatesFromLine(line){
       ls.disruption.summary,
       ls.disruption.detail
     ].filter(Boolean).join(" — ")) || "";
-
     const affectedStops = (ls.disruption?.affectedStops || []).map(s => s.commonName).filter(Boolean).join(" · ");
     const affectedRoutes = (ls.disruption?.affectedRoutes || []).map(r => r.name).filter(Boolean).join(" · ");
-
     const blob = [reason, disruptionTexts, affectedStops, affectedRoutes].filter(Boolean).join(" | ");
+
     out.push({ blob, vps, core: (ls.statusSeverityDescription || "Planned works").trim() });
   }
 
@@ -433,8 +440,6 @@ function extractRelevantPlannedFromLine(line){
     const start = item.vps[0]?.fromDate || "";
     const end = item.vps[0]?.toDate || "";
     const when = start ? `${shortDate(start)}${end ? "–"+shortDate(end) : ""}` : "";
-
-    // Keep it tight; the CSS will ellipsis anyway.
     const msg = item.blob ? `${item.core}: ${item.blob}` : item.core;
     hits.push({ when, msg });
   }
@@ -448,7 +453,6 @@ async function loadDistrictPlanned(){
 
   const start = londonISODate(0);
   const end = londonISODate(14);
-
   const url = `https://api.tfl.gov.uk/Line/${TFL_LINE_ID}/Status/${start}/to/${end}?detail=true`;
 
   try{
@@ -467,12 +471,11 @@ async function loadDistrictPlanned(){
       el.style.display = "none";
       el.textContent = "";
     }
-  }catch(_e){
+  }catch{
     el.style.display = "none";
     el.textContent = "";
   }
 }
-
 loadDistrictPlanned();
 setInterval(loadDistrictPlanned, 30*60*1000);
 </script>
