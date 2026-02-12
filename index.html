@@ -8,7 +8,7 @@
   :root{
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
     --green:#58d27a;
-    --orange:#ffb300; /* bright orange for delayed */
+    --orange:#ffb300; /* bright orange for delayed/tight */
     --red:#ff5252;
   }
   html,body{height:100%}
@@ -110,14 +110,31 @@
     display:grid;
     grid-template-columns:max-content max-content;
     align-items:baseline;
-    column-gap:8px;
+    column-gap:12px;
     white-space:nowrap;
   }
   .transfer{ font-size:clamp(12px,1.7vw,18px); color:var(--fg); }
   .transfer strong{ font-weight:800 }
-  .mins{ font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
-  .mins-warn{ color:var(--orange); font-weight:800 } /* highlight time (e.g. 1m) when tight */
-  .mins-bad{ color:var(--red); font-weight:800 }     /* optional: if non-viable ever appears */
+
+  /* Solid white isosceles triangle arrow (visible) */
+  .tri{
+    display:inline-block;
+    width:0;height:0;
+    border-top:7px solid transparent;
+    border-bottom:7px solid transparent;
+    border-left:14px solid var(--fg);
+    margin:0 10px;
+    transform:translateY(1px);
+  }
+
+  /* Minutes: WHITE + BOLD always; colour only when tight/bad */
+  .mins{
+    color:var(--fg);
+    font-weight:900;
+    font-size:clamp(12px,1.6vw,18px);
+  }
+  .mins-warn{ color:var(--orange); }
+  .mins-bad{  color:var(--red); }
 
   /* ---------- District tile overlays ---------- */
   .dl-wrap{ position:relative; width:100%; height:100%; }
@@ -305,7 +322,7 @@ function renderBL(data){
 
   out.push(`</div><div class="direct-gap"></div>`);
 
-  // Headers (styled like SRC-IMW, smaller)
+  // Headers
   out.push(`
     <div class="xfer-wrap">
       <div class="xfer-header">
@@ -325,9 +342,6 @@ function renderBL(data){
     const transferMins = leg.transferMins;
     const minsTxt = (transferMins == null) ? "—" : `${transferMins}m`;
 
-    // Colour only the minutes when tight
-    // - if non-viable: red
-    // - if viable but not ok (tight): orange
     const minsClass =
       (leg.transferViable === false) ? "mins mins-bad"
       : (leg.transferOk === false) ? "mins mins-warn"
@@ -342,7 +356,9 @@ function renderBL(data){
         <div class="mid-cell">
           <div class="pair">
             <div class="transfer">
-              <strong>Plat</strong> ${leg.cljPlatArr||"?"} <span class="arrow">→</span> <strong>Plat</strong> ${leg.cljPlatDep||"?"}
+              <strong>Plat</strong> ${leg.cljPlatArr||"?"}
+              <span class="tri" aria-hidden="true"></span>
+              <strong>Plat</strong> ${leg.cljPlatDep||"?"}
             </div>
             <div class="${minsClass}">${minsTxt}</div>
           </div>
