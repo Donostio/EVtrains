@@ -11,8 +11,10 @@
  *      transferMins = dep(CLJ->IMW, realtime if available else booked)
  *                   - arr(SRC->CLJ, realtime if available else booked)
  *    Accept if transferMins >= 1
- *  - UI hinting:
- *      *IsEstimated = true when a realtime time exists (i.e. "confirmed estimate")
+ *  - Status flags:
+ *      cancelled if any relevant stop cancelled
+ *      delayed ONLY if realtime exists AND is LATER than booked (late-only)
+ *      on_time otherwise (including early)
  */
 
 const https = require("https");
@@ -65,8 +67,12 @@ function localYMD(offsetDays = 0) {
 }
 
 function toMin(hhmm) {
-  if (!hhmm || hhmm.length !== 4) return null;
-  return parseInt(hhmm.slice(0, 2), 10) * 60 + parseInt(hhmm.slice(2, 4), 10);
+  if (!hhmm || String(hhmm).length !== 4) return null;
+  const s = String(hhmm);
+  const h = parseInt(s.slice(0, 2), 10);
+  const m = parseInt(s.slice(2, 4), 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
 }
 function hhmmFromMin(m) {
   const h = String(Math.floor(m / 60)).padStart(2, "0");
@@ -152,11 +158,31 @@ async function detailBySvc(svc, iso) {
 }
 
 /* ---------- status + time selection ---------- */
+function isLate(bookedHHMM, realtimeHHMM) {
+  const b = toMin(bookedHHMM);
+  const r = toMin(realtimeHHMM);
+  if (b == null || r == null) return false;
+  return r > b; // late-only
+}
+
 function statusFrom(o, d) {
   if (o?.isCancelled || d?.isCancelled) return "cancelled";
-  const depVar = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture !== o.gbttBookedDeparture;
-  const arrVar = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival !== d.gbttBookedArrival;
-  return (depVar || arrVar) ? "delayed" : "on_time";
+
+  // Late-only: realtime exists AND later than booked.
+  const depLate =
+    o?.gbttBookedDeparture && o?.realtimeDeparture && isLate(o.gbttBookedDeparture, o.realtimeDeparture);
+
+  const arrLate =
+    d?.gbttBookedArrival && d?.realtimeArrival && isLate(d.gbttBookedArrival, d.realtimeArrival);
+
+  return (depLate || arrLate) ? "delayed" : "on_time";
+}
+
+function combineStatus(a, b) {
+  if (a === "cancelled" || b === "cancelled") return "cancelled";
+  if (a === "delayed" || b === "delayed") return "delayed";
+  if (a === "not_found" || b === "not_found") return "not_found";
+  return "on_time";
 }
 
 function pickDepTimes(loc) {
@@ -166,7 +192,7 @@ function pickDepTimes(loc) {
     booked,
     realtime: rt,
     used: rt || booked,
-    isEstimated: !!rt, // “confirmed estimate”
+    isEstimated: !!rt,
   };
 }
 
@@ -177,7 +203,7 @@ function pickArrTimes(loc) {
     booked,
     realtime: rt,
     used: rt || booked,
-    isEstimated: !!rt, // “confirmed estimate”
+    isEstimated: !!rt,
   };
 }
 
@@ -249,7 +275,7 @@ function pickArrTimes(loc) {
         const m = toMin(dep);
         return dep && m > toMin(WINDOW_START) && m <= toMin(WINDOW_END);
       })
-      .filter((s) => !!s.serviceUid); // reliable
+      .filter((s) => !!s.serviceUid);
 
     const legs = [];
 
@@ -272,6 +298,8 @@ function pickArrTimes(loc) {
       const dep1 = pickDepTimes(o);
       const arr1 = pickArrTimes(cj);
 
+      const firstStatus = statusFrom(o, cj);
+
       const arrMin = toMin(arr1.used);
       if (arrMin == null) continue;
 
@@ -279,6 +307,7 @@ function pickArrTimes(loc) {
 
       // Find the EARLIEST CLJ->IMW departure that satisfies transfer >= 1
       let best = null;
+      let bestStopStatus = "not_found";
 
       try {
         const cand = await search(CLJ, IMW, datePath, startHHMM);
@@ -306,9 +335,10 @@ function pickArrTimes(loc) {
           if (depMin < arrMin + MIN_TRANSFER_VIABLE) continue;
 
           if (!best || depMin < toMin(best.cljDepUsed)) {
-            best = {
-              status: statusFrom(cjs, imw),
+            bestStopStatus = statusFrom(cjs, imw);
 
+            best = {
+              // second-leg times
               cljDep: dep2.booked,
               cljDepReal: dep2.realtime,
               cljDepUsed: dep2.used,
@@ -328,9 +358,10 @@ function pickArrTimes(loc) {
       const transferMins =
         best && toMin(best.cljDepUsed) != null ? (toMin(best.cljDepUsed) - arrMin) : null;
 
-      // Viable >= 1; “OK” colour threshold >= 4 (CLJ reality)
       const transferViable = transferMins != null && transferMins >= MIN_TRANSFER_VIABLE;
       const transferOk = transferMins != null && transferMins >= MIN_TRANSFER_OK;
+
+      const stitchedStatus = best ? combineStatus(firstStatus, bestStopStatus) : "not_found";
 
       legs.push({
         // SRC->CLJ
@@ -359,9 +390,8 @@ function pickArrTimes(loc) {
         imwArrIsEstimated: best?.imwArrIsEstimated || false,
         imwPlat: best?.imwPlat || null,
 
-        status: best?.status || "not_found",
+        status: stitchedStatus,
 
-        // Transfer metrics
         transferMins,
         transferViable,
         transferOk,
@@ -376,5 +406,3 @@ function pickArrTimes(loc) {
   fs.writeFileSync("xfer.json", JSON.stringify(out, null, 2));
   console.log("Wrote xfer.json.");
 })();
-
-
