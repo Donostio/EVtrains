@@ -7,7 +7,9 @@
 <style>
   :root{
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
-    --green:#58d27a; --red:#ff5252;
+    --green:#58d27a;
+    --orange:#ffb300; /* bright orange */
+    --red:#ff5252;
   }
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -32,6 +34,7 @@
   .sub{   font-size:clamp(12px,1.6vw,18px); color:var(--muted) }
   .muted{ color:var(--muted) }
   .green{ color:var(--green) }
+  .orange{ color:var(--orange) }
   .red{ color:var(--red) }
   .strike{ text-decoration:line-through }
 
@@ -162,9 +165,21 @@
   </div>
 
 <script>
-/* ---------------- basics ---------------- */
-const fmt = t => t ? String(t).padStart(4,"0").slice(0,2)+":"+String(t).padStart(4,"0").slice(2,4) : "—";
 const LONDON_TZ = "Europe/London";
+
+function normHHMM(x){
+  if(x == null) return null;
+  const s = String(x).trim();
+  if(!s) return null;
+  const digits = s.replace(/[^0-9]/g,"");
+  if(digits.length === 4) return digits;
+  if(digits.length === 3) return "0"+digits;
+  return digits.padStart(4,"0").slice(0,4);
+}
+function fmtAny(x){
+  const n = normHHMM(x);
+  return n ? n.slice(0,2)+":"+n.slice(2,4) : "—";
+}
 
 function londonYMD(offsetDays=0){
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -177,87 +192,33 @@ function londonYMD(offsetDays=0){
   return dt.toISOString().slice(0,10);
 }
 function londonISODate(offsetDays=0){ return londonYMD(offsetDays); }
-function shortDate(iso){ // DD/MM
+function shortDate(iso){
   if(!iso || iso.length < 10) return iso || "";
   return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
 }
 
-/* ---------- normalise times to HHMM digits for reliable comparison ---------- */
-function normHHMM(x){
-  if(x == null) return null;
-  const s = String(x).trim();
-  if(!s) return null;
-  const digits = s.replace(/[^0-9]/g, ""); // removes ":" etc
-  if(digits.length === 4) return digits;
-  if(digits.length === 3) return "0" + digits; // 739 -> 0739
-  if(digits.length === 2) return digits + "00";
-  return digits.padStart(4,"0").slice(0,4);
-}
-function sameTime(a,b){
-  const A = normHHMM(a), B = normHHMM(b);
-  if(!A || !B) return false;
-  return A === B;
-}
-function fmtAny(x){
-  const n = normHHMM(x);
-  return n ? n.slice(0,2)+":"+n.slice(2,4) : "—";
+/* ---------- simplified status colouring ---------- */
+function cssForStatus(status){
+  const st = String(status || "").toLowerCase();
+  if(st === "cancelled") return "cancelled";
+  if(st === "delayed" || st === "late") return "delayed";
+  return "ok";
 }
 
-/* =========================================================
-   COLOUR RULES (as agreed)
-   White = scheduled (no realtime)
-   Green = forecast/confirmed (realtime present and equals booked OR just present)
-   Red = delayed (realtime present and differs)
-   Red + strike = cancelled
-   ========================================================= */
-function cssFor(cls){
-  if(cls === "delayed") return "red";
-  if(cls === "forecast") return "green";
-  return ""; // scheduled -> white
-}
+function renderRange(dep, arr, status){
+  const cls = cssForStatus(status);
 
-/* ---------- A) TL (status.json): booked vs realtime ---------- */
-function classifyTL(booked, realtime){
-  if(!realtime) return "scheduled";
-  if(!booked) return "forecast";
-  return sameTime(realtime, booked) ? "forecast" : "delayed";
-}
-function timeRangeTL(depB, depR, arrB, arrR, cancelled){
-  if(cancelled){
-    return `<span class="red"><span class="strike">${fmtAny(depB)}</span>–<span class="strike">${fmtAny(arrB)}</span></span>`;
+  if(cls === "cancelled"){
+    return `<span class="red"><span class="strike">${fmtAny(dep)}</span>–<span class="strike">${fmtAny(arr)}</span></span>`;
   }
-  const c1 = classifyTL(depB, depR);
-  const c2 = classifyTL(arrB, arrR);
-  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed"
-            : (c1 === "forecast" || c2 === "forecast") ? "forecast"
-            : "scheduled";
-  const css = cssFor(cls);
-  return `<span class="${css}">${fmtAny(depR || depB)}–${fmtAny(arrR || arrB)}</span>`;
-}
-
-/* ---------- B) BL (xfer.json): booked vs used + IsEstimated ---------- */
-function classifyXfer(booked, used, isEstimated){
-  if(!isEstimated) return "scheduled";
-  if(!booked || !used) return "forecast";
-  return sameTime(used, booked) ? "forecast" : "delayed";
-}
-function timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, cancelled){
-  if(cancelled){
-    return `<span class="red"><span class="strike">${fmtAny(depB)}</span>–<span class="strike">${fmtAny(arrB)}</span></span>`;
+  if(cls === "delayed"){
+    return `<span class="orange">${fmtAny(dep)}–${fmtAny(arr)}</span>`;
   }
-  const c1 = classifyXfer(depB, depU, !!depEst);
-  const c2 = classifyXfer(arrB, arrU, !!arrEst);
-  const cls = (c1 === "delayed" || c2 === "delayed") ? "delayed"
-            : (c1 === "forecast" || c2 === "forecast") ? "forecast"
-            : "scheduled";
-  const css = cssFor(cls);
-
-  const dep = (depEst ? depU : depB);
-  const arr = (arrEst ? arrU : arrB);
-  return `<span class="${css}">${fmtAny(dep)}–${fmtAny(arr)}</span>`;
+  // default: green
+  return `<span class="green">${fmtAny(dep)}–${fmtAny(arr)}</span>`;
 }
 
-/* ---------------- TL (STE→WIM) ---------------- */
+/* ---------- TL (STE→WIM) ---------- */
 function renderTL(s){
   const el = document.getElementById("tl_app");
   if(!s || s.error){
@@ -265,25 +226,20 @@ function renderTL(s){
     return;
   }
 
-  const o = s.origin || {}, d = s.destination || {};
-  const cancelled = !!(o.isCancelled || d.isCancelled || s.status === "cancelled");
-
-  const depB = o.bookedDeparture || s.gbttBookedDeparture || null;
-  const depR = o.realtimeDeparture || null;
-  const arrB = d.bookedArrival || null;
-  const arrR = d.realtimeArrival || null;
-
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
   const runDate = (s.runDate || s.date || "").slice(0,10);
   const dayLabel = runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—"));
 
-  const content = cancelled
-    ? `<div class="time red"><span class="strike">${fmtAny(depB)}</span> CANCELLED</div>`
-    : `<div class="time">${timeRangeTL(depB, depR, arrB, arrR, false)}</div>`;
+  const dep = s.origin?.realtimeDeparture || s.origin?.bookedDeparture || s.gbttBookedDeparture;
+  const arr = s.destination?.realtimeArrival || s.destination?.bookedArrival;
 
-  const plat = (o.platform || d.platform)
-    ? `<div class="sub">Plat ${o.platform||"?"} · Plat ${d.platform||"?"}</div>`
+  const content = (String(s.status).toLowerCase() === "cancelled" || s.origin?.isCancelled || s.destination?.isCancelled)
+    ? `<div class="time red"><span class="strike">${fmtAny(dep)}</span> CANCELLED</div>`
+    : `<div class="time">${renderRange(dep, arr, s.status)}</div>`;
+
+  const plat = (s.origin?.platform || s.destination?.platform)
+    ? `<div class="sub">Plat ${s.origin?.platform||"?"} · Plat ${s.destination?.platform||"?"}</div>`
     : "";
 
   el.innerHTML = `<div class="tl-stack">
@@ -293,6 +249,7 @@ function renderTL(s){
     ${plat}
   </div>`;
 }
+
 async function loadTL(){
   try{
     const r = await fetch("./status.json?ts="+Date.now(), {cache:"no-store"});
@@ -304,7 +261,7 @@ async function loadTL(){
 loadTL();
 setInterval(loadTL, 60000);
 
-/* ---------------- BL (SRC→CLJ→IMW) ---------------- */
+/* ---------- BL (SRC→CLJ→IMW) ---------- */
 function renderBL(data){
   const el = document.getElementById("bl_app");
   if(!data || data.error){
@@ -313,34 +270,25 @@ function renderBL(data){
   }
 
   const out = [];
-
   const today = londonYMD(0);
   const tomorrow = londonYMD(1);
   const runDate = (data.runDate || "").slice(0,10);
   const dayLabel = data.dayLabel || (runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—")));
 
-  /* Direct block */
+  // Direct block
   out.push(`<div class="mini-stack">`);
   out.push(`<div class="sub">${dayLabel}</div>`);
   out.push(`<div class="route-mini">SRC-IMW</div>`);
 
   if(data.direct){
-    const cancelled = data.direct.status === "cancelled";
+    const dep = data.direct.srcDepUsed || data.direct.srcDepReal || data.direct.srcDep;
+    const arr = data.direct.imwArrUsed || data.direct.imwArrReal || data.direct.imwArr;
 
-    const depB = data.direct.srcDep || null;
-    const depU = data.direct.srcDepUsed || depB;
-    const depE = !!data.direct.srcDepIsEstimated;
-
-    const arrB = data.direct.imwArr || null;
-    const arrU = data.direct.imwArrUsed || arrB;
-    const arrE = !!data.direct.imwArrIsEstimated;
-
-    if(cancelled){
-      out.push(`<div class="time-mini red"><span class="strike">${fmtAny(depB)}</span> CANCELLED</div>`);
+    if(String(data.direct.status).toLowerCase() === "cancelled"){
+      out.push(`<div class="time-mini red"><span class="strike">${fmtAny(dep)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-mini">${timeRangeXfer(depB, depU, depE, arrB, arrU, arrE, false)}</div>`);
+      out.push(`<div class="time-mini">${renderRange(dep, arr, data.direct.status)}</div>`);
     }
-
     out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
   }else{
     const dp = data.datePath || runDate || "";
@@ -349,7 +297,7 @@ function renderBL(data){
 
   out.push(`</div><div class="direct-gap"></div>`);
 
-  /* Headers */
+  // Headers
   out.push(`
     <div class="xfer-wrap">
       <div class="xfer-header">
@@ -359,27 +307,12 @@ function renderBL(data){
       </div>
   `);
 
-  /* Rows */
   for(const leg of (data.legs || [])){
-    // SRC->CLJ
-    const dep1B = leg.srcDep || null;
-    const dep1U = leg.srcDepUsed || dep1B;
-    const dep1E = !!leg.srcDepIsEstimated;
+    const dep1 = leg.srcDepUsed || leg.srcDepReal || leg.srcDep;
+    const arr1 = leg.cljArrUsed || leg.cljArrReal || leg.cljArr;
 
-    const arr1B = leg.cljArr || null;
-    const arr1U = leg.cljArrUsed || arr1B;
-    const arr1E = !!leg.cljArrIsEstimated;
-
-    // CLJ->IMW
-    const dep2B = leg.cljDep || null;
-    const dep2U = leg.cljDepUsed || dep2B;
-    const dep2E = !!leg.cljDepIsEstimated;
-
-    const arr2B = leg.imwArr || null;
-    const arr2U = leg.imwArrUsed || arr2B;
-    const arr2E = !!leg.imwArrIsEstimated;
-
-    const cancelled2 = leg.status === "cancelled";
+    const dep2 = leg.cljDepUsed || leg.cljDepReal || leg.cljDep;
+    const arr2 = leg.imwArrUsed || leg.imwArrReal || leg.imwArr;
 
     const warn = (leg.transferViable === false) || (leg.transferOk === false);
     const transClass = warn ? "trans-warn" : "trans-ok";
@@ -388,7 +321,7 @@ function renderBL(data){
     out.push(`
       <div class="xrow">
         <div class="left-cell">
-          <div class="time-xs">${timeRangeXfer(dep1B, dep1U, dep1E, arr1B, arr1U, arr1E, false)}</div>
+          <div class="time-xs">${renderRange(dep1, arr1, leg.status)}</div>
           <div class="sub plat-both">Plat ${leg.srcPlat||"?"} · Plat ${leg.cljPlatArr||"?"}</div>
         </div>
 
@@ -402,7 +335,7 @@ function renderBL(data){
         </div>
 
         <div class="right-cell">
-          <div class="time-xs">${timeRangeXfer(dep2B, dep2U, dep2E, arr2B, arr2U, arr2E, cancelled2)}</div>
+          <div class="time-xs">${renderRange(dep2, arr2, leg.status)}</div>
           <div class="sub">Plat ${leg.cljPlatDep||"?"} · Plat ${leg.imwPlat||"?"}</div>
         </div>
       </div>
@@ -424,7 +357,7 @@ async function loadBL(){
 loadBL();
 setInterval(loadBL, 120000);
 
-/* ---------------- TfL planned engineering works (route-relevant) ---------------- */
+/* ---------- TfL planned engineering works (route-relevant) ---------- */
 const TFL_LINE_ID = "district";
 const ROUTE_STOPS = ["Wimbledon", "Parsons Green"];
 
@@ -488,7 +421,7 @@ async function loadDistrictPlanned(){
 
   const start = londonISODate(0);
   const end = londonISODate(14);
-  const url = `https://api.tfl.gov.uk/Line/${TFL_LINE_ID}/Status/${start}/to/${end}?detail=true`;
+  const url = `https://api.tfl.gov.uk/Line/district/Status/${start}/to/${end}?detail=true`;
 
   try{
     const r = await fetch(url, { cache:"no-store" });
@@ -516,3 +449,4 @@ setInterval(loadDistrictPlanned, 30*60*1000);
 </script>
 </body>
 </html>
+
