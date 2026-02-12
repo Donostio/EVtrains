@@ -7,14 +7,14 @@
  * Rules:
  *  - Window fixed: 07:25–08:45 (local London)
  *  - After 08:45 local, switch to tomorrow's window
- *  - Stitch using realtime estimates where available:
- *      transferMins = dep(CLJ->IMW, realtime if available else booked)
- *                   - arr(SRC->CLJ, realtime if available else booked)
- *    Accept if transferMins >= 1
- *  - Status flags:
- *      cancelled if any relevant stop cancelled
- *      delayed ONLY if realtime exists AND is LATER than booked (late-only)
- *      on_time otherwise (including early)
+ *  - IMPORTANT: For TOMORROW (future date), RTT can populate realtime* fields that are
+ *    NOT actual and can differ by ~1 minute from public timetable. We therefore:
+ *      - Today: use realtime fields when present (estimates are useful)
+ *      - Tomorrow (or any future date): ONLY use realtime if *Actual flag is true
+ *
+ *  - Stitch:
+ *      transferMins = dep(CLJ->IMW used) - arr(SRC->CLJ used)
+ *    Accept if transferMins >= MIN_TRANSFER_VIABLE
  */
 
 const https = require("https");
@@ -67,12 +67,8 @@ function localYMD(offsetDays = 0) {
 }
 
 function toMin(hhmm) {
-  if (!hhmm || String(hhmm).length !== 4) return null;
-  const s = String(hhmm);
-  const h = parseInt(s.slice(0, 2), 10);
-  const m = parseInt(s.slice(2, 4), 10);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
+  if (!hhmm || hhmm.length !== 4) return null;
+  return parseInt(hhmm.slice(0, 2), 10) * 60 + parseInt(hhmm.slice(2, 4), 10);
 }
 function hhmmFromMin(m) {
   const h = String(Math.floor(m / 60)).padStart(2, "0");
@@ -158,52 +154,49 @@ async function detailBySvc(svc, iso) {
 }
 
 /* ---------- status + time selection ---------- */
-function isLate(bookedHHMM, realtimeHHMM) {
-  const b = toMin(bookedHHMM);
-  const r = toMin(realtimeHHMM);
-  if (b == null || r == null) return false;
-  return r > b; // late-only
-}
-
 function statusFrom(o, d) {
   if (o?.isCancelled || d?.isCancelled) return "cancelled";
-
-  // Late-only: realtime exists AND later than booked.
-  const depLate =
-    o?.gbttBookedDeparture && o?.realtimeDeparture && isLate(o.gbttBookedDeparture, o.realtimeDeparture);
-
-  const arrLate =
-    d?.gbttBookedArrival && d?.realtimeArrival && isLate(d.gbttBookedArrival, d.realtimeArrival);
-
-  return (depLate || arrLate) ? "delayed" : "on_time";
+  const depVar = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture !== o.gbttBookedDeparture;
+  const arrVar = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival !== d.gbttBookedArrival;
+  return (depVar || arrVar) ? "delayed" : "on_time";
 }
 
-function combineStatus(a, b) {
-  if (a === "cancelled" || b === "cancelled") return "cancelled";
-  if (a === "delayed" || b === "delayed") return "delayed";
-  if (a === "not_found" || b === "not_found") return "not_found";
-  return "on_time";
-}
-
-function pickDepTimes(loc) {
+/**
+ * Decide whether we may use RTT "realtime" values.
+ * - If allowEstimate is true (today), realtime can be used even if not actual.
+ * - If allowEstimate is false (tomorrow/future), only use realtime when *Actual is true.
+ */
+function pickDepTimes(loc, allowEstimate) {
   const booked = loc?.gbttBookedDeparture || null;
-  const rt = loc?.realtimeDeparture || null;
+
+  const rtVal = loc?.realtimeDeparture || null;
+  const rtActual = !!loc?.realtimeDepartureActual;
+
+  const useRT = allowEstimate ? !!rtVal : (!!rtVal && rtActual);
+
   return {
     booked,
-    realtime: rt,
-    used: rt || booked,
-    isEstimated: !!rt,
+    realtime: useRT ? rtVal : null,
+    used: (useRT ? rtVal : null) || booked,
+    isEstimated: useRT, // true only when we actually used realtime
+    isActual: useRT ? rtActual : false,
   };
 }
 
-function pickArrTimes(loc) {
+function pickArrTimes(loc, allowEstimate) {
   const booked = loc?.gbttBookedArrival || null;
-  const rt = loc?.realtimeArrival || null;
+
+  const rtVal = loc?.realtimeArrival || null;
+  const rtActual = !!loc?.realtimeArrivalActual;
+
+  const useRT = allowEstimate ? !!rtVal : (!!rtVal && rtActual);
+
   return {
     booked,
-    realtime: rt,
-    used: rt || booked,
-    isEstimated: !!rt,
+    realtime: useRT ? rtVal : null,
+    used: (useRT ? rtVal : null) || booked,
+    isEstimated: useRT,
+    isActual: useRT ? rtActual : false,
   };
 }
 
@@ -218,7 +211,10 @@ function pickArrTimes(loc) {
   const targetISO = useTomorrow ? tomorrowISO : todayISO;
   const datePath = isoToPath(targetISO);
 
-  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END}`);
+  // Today: allow estimate realtime (useful). Tomorrow/future: only actual realtime.
+  const allowEstimate = !useTomorrow;
+
+  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END} allowEstimate=${allowEstimate}`);
 
   const out = {
     generatedAt: new Date().toISOString(),
@@ -242,8 +238,8 @@ function pickArrTimes(loc) {
       const det = await detailBySvc(svc, targetISO);
       const o = stop(det, SRC), iw = stop(det, IMW);
 
-      const dep = pickDepTimes(o);
-      const arr = pickArrTimes(iw);
+      const dep = pickDepTimes(o, allowEstimate);
+      const arr = pickArrTimes(iw, allowEstimate);
 
       out.direct = {
         status: statusFrom(o, iw),
@@ -275,7 +271,7 @@ function pickArrTimes(loc) {
         const m = toMin(dep);
         return dep && m > toMin(WINDOW_START) && m <= toMin(WINDOW_END);
       })
-      .filter((s) => !!s.serviceUid);
+      .filter((s) => !!s.serviceUid); // reliable
 
     const legs = [];
 
@@ -295,19 +291,16 @@ function pickArrTimes(loc) {
 
       if (!o?.gbttBookedDeparture || !cj?.gbttBookedArrival) continue;
 
-      const dep1 = pickDepTimes(o);
-      const arr1 = pickArrTimes(cj);
-
-      const firstStatus = statusFrom(o, cj);
+      const dep1 = pickDepTimes(o, allowEstimate);
+      const arr1 = pickArrTimes(cj, allowEstimate);
 
       const arrMin = toMin(arr1.used);
       if (arrMin == null) continue;
 
       const startHHMM = hhmmFromMin(arrMin + MIN_TRANSFER_VIABLE);
 
-      // Find the EARLIEST CLJ->IMW departure that satisfies transfer >= 1
+      // Find the EARLIEST CLJ->IMW departure that satisfies transfer >= viable threshold
       let best = null;
-      let bestStopStatus = "not_found";
 
       try {
         const cand = await search(CLJ, IMW, datePath, startHHMM);
@@ -327,18 +320,17 @@ function pickArrTimes(loc) {
 
           if (!cjs?.gbttBookedDeparture || !imw?.gbttBookedArrival) continue;
 
-          const dep2 = pickDepTimes(cjs);
-          const arr2 = pickArrTimes(imw);
+          const dep2 = pickDepTimes(cjs, allowEstimate);
+          const arr2 = pickArrTimes(imw, allowEstimate);
 
           const depMin = toMin(dep2.used);
           if (depMin == null) continue;
           if (depMin < arrMin + MIN_TRANSFER_VIABLE) continue;
 
           if (!best || depMin < toMin(best.cljDepUsed)) {
-            bestStopStatus = statusFrom(cjs, imw);
-
             best = {
-              // second-leg times
+              status: statusFrom(cjs, imw),
+
               cljDep: dep2.booked,
               cljDepReal: dep2.realtime,
               cljDepUsed: dep2.used,
@@ -360,8 +352,6 @@ function pickArrTimes(loc) {
 
       const transferViable = transferMins != null && transferMins >= MIN_TRANSFER_VIABLE;
       const transferOk = transferMins != null && transferMins >= MIN_TRANSFER_OK;
-
-      const stitchedStatus = best ? combineStatus(firstStatus, bestStopStatus) : "not_found";
 
       legs.push({
         // SRC->CLJ
@@ -390,8 +380,9 @@ function pickArrTimes(loc) {
         imwArrIsEstimated: best?.imwArrIsEstimated || false,
         imwPlat: best?.imwPlat || null,
 
-        status: stitchedStatus,
+        status: best?.status || "not_found",
 
+        // Transfer metrics
         transferMins,
         transferViable,
         transferOk,
