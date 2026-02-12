@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#000; --fg:#eaeaea; --muted:#9aa0a6;
-    --green:#58d27a; --red:#ff5252; --amber:#ffa000;
+    --green:#58d27a; --red:#ff5252;
   }
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -33,8 +33,6 @@
   .muted{ color:var(--muted) }
   .green{ color:var(--green) }
   .red{ color:var(--red) }
-  .amber{ color:var(--amber) } /* unused now, kept */
-  .small{ font-size:0.85em }
   .strike{ text-decoration:line-through }
 
   /* ---------- TL (STE→WIM) ---------- */
@@ -135,24 +133,6 @@
     text-align:center;
     pointer-events:none;
   }
-
-  /* ---------- Responsive ---------- */
-  @media (max-width: 900px){
-    .board{ gap:16px; padding:16px }
-    .xrow{ column-gap:12px }
-  }
-  @media (max-width: 700px){
-    .board{ grid-template-rows: 0.8fr 1.2fr; gap:12px; padding:12px }
-    .mid-cell,.right-cell{ gap:1rem }
-  }
-  @media (max-height: 480px) and (orientation: landscape){
-    .time-xs{ font-size:clamp(12px,1.6vw,20px) }
-    .title{ font-size:clamp(10px,1.3vw,16px) }
-    .xrow{ column-gap:10px; padding:4px 0 }
-    .pair{ column-gap:8px }
-    .dl-planned{ top:28px }
-    .dl-label{ top:50px }
-  }
 </style>
 </head>
 <body>
@@ -183,7 +163,7 @@
 
 <script>
 /* ---------------- basics ---------------- */
-const fmt = t => t ? t.slice(0,2)+":"+t.slice(2) : "—";
+const fmt = t => t ? String(t).padStart(4,"0").slice(0,2)+":"+String(t).padStart(4,"0").slice(2,4) : "—";
 const LONDON_TZ = "Europe/London";
 
 function londonYMD(offsetDays=0){
@@ -202,29 +182,49 @@ function shortDate(iso){ // DD/MM
   return `${iso.slice(8,10)}/${iso.slice(5,7)}`;
 }
 
-/* =========================================================
-   TIME COLOUR RULES (exactly as you specified)
+/* ---------- normalise times to HHMM digits for reliable comparison ---------- */
+function normHHMM(x){
+  if(x == null) return null;
+  const s = String(x).trim();
+  if(!s) return null;
+  const digits = s.replace(/[^0-9]/g, ""); // removes ":" etc
+  if(digits.length === 4) return digits;
+  if(digits.length === 3) return "0" + digits; // 739 -> 0739
+  if(digits.length === 2) return digits + "00";
+  return digits.padStart(4,"0").slice(0,4);
+}
+function sameTime(a,b){
+  const A = normHHMM(a), B = normHHMM(b);
+  if(!A || !B) return false;
+  return A === B;
+}
+function fmtAny(x){
+  const n = normHHMM(x);
+  return n ? n.slice(0,2)+":"+n.slice(2,4) : "—";
+}
 
+/* =========================================================
+   COLOUR RULES (as agreed)
    White = scheduled (no realtime)
    Green = forecast/confirmed (realtime present and equals booked OR just present)
    Red = delayed (realtime present and differs)
    Red + strike = cancelled
    ========================================================= */
-
-/* ---------- A) TL (status.json): booked vs realtime fields ---------- */
-function classifyTL(booked, realtime){
-  if(!realtime) return "scheduled";
-  if(!booked) return "forecast";
-  return (realtime !== booked) ? "delayed" : "forecast";
-}
 function cssFor(cls){
   if(cls === "delayed") return "red";
   if(cls === "forecast") return "green";
   return ""; // scheduled -> white
 }
+
+/* ---------- A) TL (status.json): booked vs realtime ---------- */
+function classifyTL(booked, realtime){
+  if(!realtime) return "scheduled";
+  if(!booked) return "forecast";
+  return sameTime(realtime, booked) ? "forecast" : "delayed";
+}
 function timeRangeTL(depB, depR, arrB, arrR, cancelled){
   if(cancelled){
-    return `<span class="red"><span class="strike">${fmt(depB)}</span>–<span class="strike">${fmt(arrB)}</span></span>`;
+    return `<span class="red"><span class="strike">${fmtAny(depB)}</span>–<span class="strike">${fmtAny(arrB)}</span></span>`;
   }
   const c1 = classifyTL(depB, depR);
   const c2 = classifyTL(arrB, arrR);
@@ -232,18 +232,18 @@ function timeRangeTL(depB, depR, arrB, arrR, cancelled){
             : (c1 === "forecast" || c2 === "forecast") ? "forecast"
             : "scheduled";
   const css = cssFor(cls);
-  return `<span class="${css}">${fmt(depR || depB)}–${fmt(arrR || arrB)}</span>`;
+  return `<span class="${css}">${fmtAny(depR || depB)}–${fmtAny(arrR || arrB)}</span>`;
 }
 
 /* ---------- B) BL (xfer.json): booked vs used + IsEstimated ---------- */
 function classifyXfer(booked, used, isEstimated){
   if(!isEstimated) return "scheduled";
   if(!booked || !used) return "forecast";
-  return (used !== booked) ? "delayed" : "forecast";
+  return sameTime(used, booked) ? "forecast" : "delayed";
 }
 function timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, cancelled){
   if(cancelled){
-    return `<span class="red"><span class="strike">${fmt(depB)}</span>–<span class="strike">${fmt(arrB)}</span></span>`;
+    return `<span class="red"><span class="strike">${fmtAny(depB)}</span>–<span class="strike">${fmtAny(arrB)}</span></span>`;
   }
   const c1 = classifyXfer(depB, depU, !!depEst);
   const c2 = classifyXfer(arrB, arrU, !!arrEst);
@@ -254,7 +254,7 @@ function timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, cancelled){
 
   const dep = (depEst ? depU : depB);
   const arr = (arrEst ? arrU : arrB);
-  return `<span class="${css}">${fmt(dep)}–${fmt(arr)}</span>`;
+  return `<span class="${css}">${fmtAny(dep)}–${fmtAny(arr)}</span>`;
 }
 
 /* ---------------- TL (STE→WIM) ---------------- */
@@ -279,7 +279,7 @@ function renderTL(s){
   const dayLabel = runDate===today ? "Today" : (runDate===tomorrow ? "Tomorrow" : (runDate || "—"));
 
   const content = cancelled
-    ? `<div class="time red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`
+    ? `<div class="time red"><span class="strike">${fmtAny(depB)}</span> CANCELLED</div>`
     : `<div class="time">${timeRangeTL(depB, depR, arrB, arrR, false)}</div>`;
 
   const plat = (o.platform || d.platform)
@@ -329,16 +329,16 @@ function renderBL(data){
 
     const depB = data.direct.srcDep || null;
     const depU = data.direct.srcDepUsed || depB;
-    const depEst = !!data.direct.srcDepIsEstimated;
+    const depE = !!data.direct.srcDepIsEstimated;
 
     const arrB = data.direct.imwArr || null;
     const arrU = data.direct.imwArrUsed || arrB;
-    const arrEst = !!data.direct.imwArrIsEstimated;
+    const arrE = !!data.direct.imwArrIsEstimated;
 
     if(cancelled){
-      out.push(`<div class="time-mini red"><span class="strike">${fmt(depB)}</span> CANCELLED</div>`);
+      out.push(`<div class="time-mini red"><span class="strike">${fmtAny(depB)}</span> CANCELLED</div>`);
     }else{
-      out.push(`<div class="time-mini">${timeRangeXfer(depB, depU, depEst, arrB, arrU, arrEst, false)}</div>`);
+      out.push(`<div class="time-mini">${timeRangeXfer(depB, depU, depE, arrB, arrU, arrE, false)}</div>`);
     }
 
     out.push(`<div class="sub">Plat ${data.direct.srcPlat||"?"} · Plat ${data.direct.imwPlat||"?"}</div>`);
@@ -361,7 +361,7 @@ function renderBL(data){
 
   /* Rows */
   for(const leg of (data.legs || [])){
-    // SRC->CLJ (booked vs used + isEstimated)
+    // SRC->CLJ
     const dep1B = leg.srcDep || null;
     const dep1U = leg.srcDepUsed || dep1B;
     const dep1E = !!leg.srcDepIsEstimated;
