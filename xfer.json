@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-13T07:40:06.735Z",
+  "generatedAt": "2026-02-13T07:57:47.692Z",
   "datePath": "2026/02/13",
   "runDate": "2026-02-13",
   "dayLabel": "Today",
@@ -27,12 +27,12 @@
   "legs": [
     {
       "srcDep": "0739",
-      "srcDepReal": "0740",
+      "srcDepReal": "0741",
       "srcDepUsed": "0739",
       "srcDepIsEstimated": false,
       "srcPlat": "2",
       "cljArr": "0750",
-      "cljArrReal": "0750",
+      "cljArrReal": "0751",
       "cljArrUsed": "0750",
       "cljArrIsEstimated": false,
       "cljPlatArr": "14",
