@@ -1,20 +1,12 @@
 #!/usr/bin/env node
 /**
  * xfer_plan.js
- * Morning window planner for:
- *   SRC -> CLJ  then  CLJ -> IMW
  *
- * Rules:
- *  - Window fixed: 07:25–08:45 (local London)
- *  - After 08:45 local, switch to tomorrow's window
- *  - IMPORTANT: For TOMORROW (future date), RTT can populate realtime* fields that are
- *    NOT actual and can differ by ~1 minute from public timetable. We therefore:
- *      - Today: use realtime fields when present (estimates are useful)
- *      - Tomorrow (or any future date): ONLY use realtime if *Actual flag is true
- *
- *  - Stitch:
- *      transferMins = dep(CLJ->IMW used) - arr(SRC->CLJ used)
- *    Accept if transferMins >= MIN_TRANSFER_VIABLE
+ * Key rule change:
+ *  - RTT can populate realtime fields that are NOT actual and can differ from public times.
+ *  - Overnight (before MONITOR_START_LOCAL), we treat those as noise and use GBTT only.
+ *  - During monitoring hours on the same day, we allow realtime estimates (even if not actual).
+ *  - On tomorrow/future dates, we only use realtime when *Actual is true.
  */
 
 const https = require("https");
@@ -32,6 +24,9 @@ const SRC = "SRC", CLJ = "CLJ", IMW = "IMW";
 
 const WINDOW_START = process.env.WINDOW_START || "0725";
 const WINDOW_END   = process.env.WINDOW_END   || "0845";
+
+// New: only treat non-actual realtime as meaningful after this time (London local)
+const MONITOR_START_LOCAL = process.env.MONITOR_START_LOCAL || "0600";
 
 // Viability + warning thresholds (minutes)
 const MIN_TRANSFER_VIABLE = Number.parseInt(process.env.MIN_TRANSFER_VIABLE || "1", 10);
@@ -128,7 +123,6 @@ async function search(from, to, datePath, hhmm) {
 const stop = (detail, crs) => (detail?.locations || []).find((l) => l.crs === crs) || {};
 
 async function detailBySvc(svc, iso) {
-  // Prefer RID if present, but never require it.
   if (svc.rid) {
     try {
       return await fetchJSON(`https://api.rtt.io/api/v1/json/service/${svc.rid}`);
@@ -162,13 +156,12 @@ function statusFrom(o, d) {
 }
 
 /**
- * Decide whether we may use RTT "realtime" values.
- * - If allowEstimate is true (today), realtime can be used even if not actual.
- * - If allowEstimate is false (tomorrow/future), only use realtime when *Actual is true.
+ * allowEstimate semantics:
+ *  - true: we may use realtime values even when not actual
+ *  - false: use realtime only when *Actual flag is true
  */
 function pickDepTimes(loc, allowEstimate) {
   const booked = loc?.gbttBookedDeparture || null;
-
   const rtVal = loc?.realtimeDeparture || null;
   const rtActual = !!loc?.realtimeDepartureActual;
 
@@ -178,14 +171,12 @@ function pickDepTimes(loc, allowEstimate) {
     booked,
     realtime: useRT ? rtVal : null,
     used: (useRT ? rtVal : null) || booked,
-    isEstimated: useRT, // true only when we actually used realtime
+    isEstimated: useRT,
     isActual: useRT ? rtActual : false,
   };
 }
-
 function pickArrTimes(loc, allowEstimate) {
   const booked = loc?.gbttBookedArrival || null;
-
   const rtVal = loc?.realtimeArrival || null;
   const rtActual = !!loc?.realtimeArrivalActual;
 
@@ -206,15 +197,20 @@ function pickArrTimes(loc, allowEstimate) {
   const todayISO = localYMD(0);
   const tomorrowISO = localYMD(1);
 
-  // Switch to tomorrow after the end of the window
+  // After the morning window, switch to tomorrow's window
   const useTomorrow = toMin(nowHHMM) > toMin(WINDOW_END);
   const targetISO = useTomorrow ? tomorrowISO : todayISO;
   const datePath = isoToPath(targetISO);
 
-  // Today: allow estimate realtime (useful). Tomorrow/future: only actual realtime.
-  const allowEstimate = !useTomorrow;
+  // Overnight guard:
+  // - Same-day, before MONITOR_START_LOCAL: do NOT allow non-actual estimates
+  // - Same-day, after MONITOR_START_LOCAL: allow estimates
+  // - Tomorrow/future: never allow non-actual estimates
+  const isSameDay = !useTomorrow;
+  const withinMonitor = toMin(nowHHMM) >= toMin(MONITOR_START_LOCAL);
+  const allowEstimate = isSameDay && withinMonitor;
 
-  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END} allowEstimate=${allowEstimate}`);
+  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END} monitorStart=${MONITOR_START_LOCAL} allowEstimate=${allowEstimate}`);
 
   const out = {
     generatedAt: new Date().toISOString(),
@@ -261,7 +257,7 @@ function pickArrTimes(loc, allowEstimate) {
     console.warn("Direct fetch error:", String(e));
   }
 
-  // --- First legs: next 3 SRC -> CLJ strictly AFTER 07:25 and <= 08:45 ---
+  // --- First legs: SRC -> CLJ strictly AFTER 07:25 and <= 08:45 ---
   try {
     const all = await search(SRC, CLJ, datePath, WINDOW_START);
 
@@ -271,7 +267,7 @@ function pickArrTimes(loc, allowEstimate) {
         const m = toMin(dep);
         return dep && m > toMin(WINDOW_START) && m <= toMin(WINDOW_END);
       })
-      .filter((s) => !!s.serviceUid); // reliable
+      .filter((s) => !!s.serviceUid);
 
     const legs = [];
 
@@ -299,7 +295,7 @@ function pickArrTimes(loc, allowEstimate) {
 
       const startHHMM = hhmmFromMin(arrMin + MIN_TRANSFER_VIABLE);
 
-      // Find the EARLIEST CLJ->IMW departure that satisfies transfer >= viable threshold
+      // Find the earliest CLJ->IMW departure that satisfies transfer >= viable threshold
       let best = null;
 
       try {
@@ -354,7 +350,6 @@ function pickArrTimes(loc, allowEstimate) {
       const transferOk = transferMins != null && transferMins >= MIN_TRANSFER_OK;
 
       legs.push({
-        // SRC->CLJ
         srcDep: dep1.booked,
         srcDepReal: dep1.realtime,
         srcDepUsed: dep1.used,
@@ -367,7 +362,6 @@ function pickArrTimes(loc, allowEstimate) {
         cljArrIsEstimated: arr1.isEstimated,
         cljPlatArr: cj.platform || null,
 
-        // Chosen CLJ->IMW connection
         cljDep: best?.cljDep || null,
         cljDepReal: best?.cljDepReal || null,
         cljDepUsed: best?.cljDepUsed || null,
@@ -382,7 +376,6 @@ function pickArrTimes(loc, allowEstimate) {
 
         status: best?.status || "not_found",
 
-        // Transfer metrics
         transferMins,
         transferViable,
         transferOk,
