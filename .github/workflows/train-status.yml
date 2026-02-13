@@ -1,13 +1,19 @@
 name: Train Status (RTT)
 
+permissions:
+  contents: write
+
 on:
+  schedule:
+    # Wide UTC envelopes; local London gate decides whether to proceed (DST-safe)
+    - cron: "*/5 4-9 * * 1-5"
+    - cron: "*/5 16-23 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
         description: "Force run outside time windows"
         required: false
         default: "false"
-      # Optional: allow you to regenerate a specific date/time window manually if you ever want
       window_date:
         description: "Override window date (YYYY-MM-DD). Leave blank for today (London)."
         required: false
@@ -16,15 +22,29 @@ on:
         description: "Override window anchor time (HHMM). Leave blank for now (London)."
         required: false
         default: ""
-  schedule:
-    - cron: "*/5 * * * *"
-
-permissions:
-  contents: write
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
+
+    env:
+      # Single-train tracker (top-left)
+      ORIGIN_CRS: "STE"
+      DEST_CRS: "WIM"
+      BOOKED_DEPART_HHMM: "0744"
+
+      # London-local behaviour
+      LONDON_TZ: "Europe/London"
+      TIME_WINDOWS_LOCAL: "06:00-08:10,18:00-22:00"
+
+      # Fetch script uses this when deciding “today vs tomorrow”
+      SWITCH_GRACE_MINS: "2"
+
+      # Transfer planner defaults
+      BACK_MINS: "40"
+      FWD_MINS: "180"
+      MIN_XFER_MINS: "3"
+      MAX_XFER_MINS: "20"
 
     steps:
       - name: Checkout
@@ -45,23 +65,37 @@ jobs:
 
           FORCE="${{ github.event.inputs.force || 'false' }}"
 
-          # If manually forced, always run.
           if [ "$FORCE" = "true" ]; then
-            echo "Local time: forced run"
+            echo "Force run enabled; bypassing time gate."
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Europe/London local time HHMM
-          HHMM="$(TZ=Europe/London date +%H%M)"
-          echo "Local time: $HHMM windows: 06:00-08:10, 18:00-22:00"
+          # Current London time HH:MM
+          HM="$(TZ=${LONDON_TZ} date +%H:%M)"
+          echo "Local time: $HM windows: ${TIME_WINDOWS_LOCAL}"
 
-          # windows (inclusive start, inclusive end)
-          in_window=false
-          if [ "$HHMM" -ge 0600 ] && [ "$HHMM" -le 0810 ]; then in_window=true; fi
-          if [ "$HHMM" -ge 1800 ] && [ "$HHMM" -le 2200 ]; then in_window=true; fi
+          # Convert HH:MM -> minutes
+          to_mins () { echo $((10#${1%:*}*60 + 10#${1#*:})); }
 
-          if [ "$in_window" = "true" ]; then
+          CUR="$(to_mins "$HM")"
+
+          ok=false
+          IFS=',' read -ra WINS <<< "${TIME_WINDOWS_LOCAL}"
+          for w in "${WINS[@]}"; do
+            w="$(echo "$w" | xargs)"
+            start="${w%-*}"
+            end="${w#*-}"
+            s="$(to_mins "$start")"
+            e="$(to_mins "$end")"
+            if [ "$CUR" -ge "$s" ] && [ "$CUR" -le "$e" ]; then
+              ok=true
+              break
+            fi
+          done
+
+          if [ "$ok" = "true" ]; then
+            echo "Inside time window; proceeding."
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "Outside time windows; skipping updates."
@@ -73,10 +107,11 @@ jobs:
         env:
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          ORIGIN_CRS: "STE"
-          DEST_CRS: "WIM"
-          DEP_TIME: "0744"
-          TZ: "Europe/London"
+          ORIGIN_CRS: ${{ env.ORIGIN_CRS }}
+          DEST_CRS: ${{ env.DEST_CRS }}
+          BOOKED_DEPART_HHMM: ${{ env.BOOKED_DEPART_HHMM }}
+          LONDON_TZ: ${{ env.LONDON_TZ }}
+          SWITCH_GRACE_MINS: ${{ env.SWITCH_GRACE_MINS }}
         run: node scripts/fetch_rtt.js
 
       - name: Build transfer options (write xfer.json)
@@ -84,22 +119,15 @@ jobs:
         env:
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          TZ: "Europe/London"
+          TZ: ${{ env.LONDON_TZ }}
 
-          # Default behaviour: compute around "now" unless you override manually.
-          # If you want it to always show the *next morning commute* even during the day,
-          # we can change this later — but this keeps behaviour simple/stable.
           WINDOW_DATE: ${{ github.event.inputs.window_date }}
           WINDOW_START_HHMM: ${{ github.event.inputs.window_start_hhmm }}
 
-          BACK_MINS: "40"
-          FWD_MINS: "180"
-          MIN_XFER_MINS: "3"
-          MAX_XFER_MINS: "20"
-
-          SRC_CRS: "SRC"
-          CLJ_CRS: "CLJ"
-          IMW_CRS: "IMW"
+          BACK_MINS: ${{ env.BACK_MINS }}
+          FWD_MINS: ${{ env.FWD_MINS }}
+          MIN_XFER_MINS: ${{ env.MIN_XFER_MINS }}
+          MAX_XFER_MINS: ${{ env.MAX_XFER_MINS }}
         run: node scripts/xfer_plan.js
 
       - name: Commit updated JSON
@@ -110,13 +138,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Only add files we expect to change
-          git add status.json history.jsonl xfer.json || true
+          git add status.json xfer.json history.jsonl || true
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
+          # No-op if nothing changed
+          git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
 
-          git commit -m "Automated status update via cron"
-          git push origin HEAD:main
+          git commit -m "Update board snapshots"
+
+          # Push; if non-fast-forward (rare concurrency), rebase then push again
+          git push || (git pull --rebase && git push)
