@@ -2,21 +2,46 @@ name: Train Status (RTT)
 
 on:
   schedule:
+    # every 5 minutes
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
-      force:
+      FORCE:
         description: "Run even outside time windows"
         required: false
         default: "false"
+
+permissions:
+  contents: write
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
 
+    env:
+      # RTT credentials (match your repo secret names)
+      RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
+      RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
+
+      # Timezone used by scripts (and time-gate below)
+      LONDON_TZ: Europe/London
+
+      # Transfer window for the bottom-left board (adjust if you want)
+      WINDOW_START: "0725"
+      WINDOW_END: "0845"
+
+      # Transfer thresholds (optional; keep or tweak)
+      MIN_TRANSFER_VIABLE: "1"
+      MIN_TRANSFER_OK: "4"
+
+      # If you’re using workflow_dispatch input FORCE
+      FORCE: ${{ github.event.inputs.FORCE || 'false' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -24,71 +49,47 @@ jobs:
           node-version: "20"
 
       - name: Time gate (Europe/London windows or force)
-        id: gate
         shell: bash
         run: |
-          FORCE="${{ github.event.inputs.force || 'false' }}"
-          WINDOW1_START="0600"
-          WINDOW1_END="0810"
-          WINDOW2_START="1800"
-          WINDOW2_END="2200"
-
-          NOW=$(TZ=Europe/London date +%H%M)
-          echo "Local time: ${NOW} windows: ${WINDOW1_START}-${WINDOW1_END}, ${WINDOW2_START}-${WINDOW2_END}"
-
-          in_window=false
-          if [[ "${NOW}" > "${WINDOW1_START}" && "${NOW}" < "${WINDOW1_END}" ]]; then in_window=true; fi
-          if [[ "${NOW}" > "${WINDOW2_START}" && "${NOW}" < "${WINDOW2_END}" ]]; then in_window=true; fi
-
+          set -euo pipefail
           if [[ "${FORCE}" == "true" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [[ "${in_window}" == "true" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "FORCE=true -> skipping time gate"
+            exit 0
           fi
 
-      - name: Debug repo layout (only when running)
-        if: steps.gate.outputs.run == 'true'
-        run: |
-          pwd
-          ls -la
-          echo "---- scripts ----"
-          ls -la scripts || true
+          local_hhmm="$(TZ="${LONDON_TZ}" date +%H%M)"
+          echo "Local time: ${local_hhmm} windows: 06:00-08:10, 18:00-22:00"
+
+          # morning window
+          if [[ "${local_hhmm}" > "0559" && "${local_hhmm}" < "0811" ]]; then
+            exit 0
+          fi
+
+          # evening window
+          if [[ "${local_hhmm}" > "1759" && "${local_hhmm}" < "2201" ]]; then
+            exit 0
+          fi
+
+          echo "Outside time windows; exiting with 78 to skip."
+          exit 78
 
       - name: Fetch Realtime Trains (STE->WIM) and write status.json
-        env:
-          RTT_USER: "${{ secrets.RTT_USER }}"
-          RTT_PASS: "${{ secrets.RTT_PASS }}"
-          # (optional backwards-compat — harmless)
-          RTT_USERNAME: "${{ secrets.RTT_USER }}"
-          RTT_PASSWORD: "${{ secrets.RTT_PASS }}"
-          ORIGIN_CRS: "${{ env.ORIGIN_CRS }}"
-          DEST_CRS: "${{ env.DEST_CRS }}"
-          BOOKED_DEPART_HHMM: "${{ env.BOOKED_DEPART_HHMM }}"
-          LONDON_TZ: "${{ env.LONDON_TZ }}"
-          SWITCH_GRACE_MINS: "${{ env.SWITCH_GRACE_MINS }}"
         run: node scripts/fetch_rtt.js
 
-      - name: Build SRC-CLJ-IMW transfer options (write xfer.json)
-        env:
-          RTT_USER: "${{ secrets.RTT_USER }}"
-          RTT_PASS: "${{ secrets.RTT_PASS }}"
-          RTT_USERNAME: "${{ secrets.RTT_USER }}"
-          RTT_PASSWORD: "${{ secrets.RTT_PASS }}"
-          LONDON_TZ: "Europe/London"
-          WINDOW_BACK_MINS: "40"
-          WINDOW_FWD_MINS: "180"
+      - name: Build transfer options (write xfer.json)
         run: node scripts/xfer_plan.js
 
-
       - name: Commit board JSON
-        if: steps.gate.outputs.run == 'true'
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add status.json xfer.json || true
+          # Make sure we're up to date before committing
+          git pull --rebase origin main
+
+          git add status.json xfer.json history.jsonl || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
@@ -96,9 +97,4 @@ jobs:
           fi
 
           git commit -m "Automated status update via cron"
-          git pull --rebase origin main
           git push origin HEAD:main
-
-      - name: Skip (outside time window)
-        if: steps.gate.outputs.run != 'true'
-        run: echo "Outside time window; skipping fetch/commit."
