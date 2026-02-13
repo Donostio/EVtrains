@@ -2,41 +2,35 @@ name: Train Status (RTT)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # every 1 min, all day; time gate below decides whether to run
+    - cron: "*/1 * * * *"
   workflow_dispatch:
     inputs:
-      FORCE:
-        description: "Run even outside time windows"
+      force:
+        description: "Run now (ignore time windows)"
         required: false
         default: "false"
-
-permissions:
-  contents: write
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
 
     env:
-      RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
-      RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-
+      # --- core config (single-train tracker: STE->WIM 07:44) ---
       LONDON_TZ: Europe/London
+      ORIGIN_CRS: STE
+      DEST_CRS: WIM
+      BOOKED_DEPART_HHMM: "0744"
+      SWITCH_GRACE_MINS: "2"
 
-      # Transfer window for the bottom-left board (adjust if needed)
-      WINDOW_START: "0725"
-      WINDOW_END: "0845"
-
-      MIN_TRANSFER_VIABLE: "1"
-      MIN_TRANSFER_OK: "4"
-
-      FORCE: ${{ github.event.inputs.FORCE || 'false' }}
+      # --- transfer window config for xfer_plan.js ---
+      # Make this earlier if you want to include earlier departures (see note below)
+      WINDOW_START: "0735"
+      WINDOW_END: "0835"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -44,55 +38,48 @@ jobs:
           node-version: "20"
 
       - name: Time gate (Europe/London windows or force)
-        id: timegate
+        id: gate
         shell: bash
+        env:
+          FORCE: ${{ github.event.inputs.force || 'false' }}
         run: |
           set -euo pipefail
 
+          now=$(TZ="${LONDON_TZ}" date +%H%M)
+          echo "Local time: ${now} windows: 06:00-08:10, 18:00-22:00"
+
+          run="false"
           if [[ "${FORCE}" == "true" ]]; then
-            echo "FORCE=true -> running regardless of time window"
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          local_hhmm="$(TZ="${LONDON_TZ}" date +%H%M)"
-          echo "Local time: ${local_hhmm} windows: 06:00-08:10, 18:00-22:00"
-
-          run=false
-
-          # morning window: 06:00–08:10 inclusive of 08:10
-          if [[ "${local_hhmm}" > "0559" && "${local_hhmm}" < "0811" ]]; then
-            run=true
-          fi
-
-          # evening window: 18:00–22:00 inclusive of 22:00
-          if [[ "${local_hhmm}" > "1759" && "${local_hhmm}" < "2201" ]]; then
-            run=true
+            run="true"
+          elif [[ "${now}" -ge 0600 && "${now}" -le 0810 ]]; then
+            run="true"
+          elif [[ "${now}" -ge 1800 && "${now}" -le 2200 ]]; then
+            run="true"
           fi
 
           echo "run=${run}" >> "$GITHUB_OUTPUT"
-
-          if [[ "${run}" != "true" ]]; then
-            echo "Outside time windows; skipping update steps (job will succeed)."
-          fi
+          echo "Gate result: run=${run}"
 
       - name: Fetch Realtime Trains (STE->WIM) and write status.json
-        if: steps.timegate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true'
+        env:
+          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
+          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
         run: node scripts/fetch_rtt.js
 
       - name: Build transfer options (write xfer.json)
-        if: steps.timegate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true'
+        env:
+          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
+          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
         run: node scripts/xfer_plan.js
 
       - name: Commit board JSON
-        if: steps.timegate.outputs.run == 'true'
-        shell: bash
+        if: steps.gate.outputs.run == 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git pull --rebase origin main
 
           git add status.json xfer.json history.jsonl || true
 
@@ -102,4 +89,5 @@ jobs:
           fi
 
           git commit -m "Automated status update via cron"
+          git pull --rebase origin main
           git push origin HEAD:main
