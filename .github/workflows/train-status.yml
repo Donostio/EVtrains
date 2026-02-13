@@ -2,7 +2,6 @@ name: Train Status (RTT)
 
 on:
   schedule:
-    # every 5 minutes
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
@@ -19,22 +18,18 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # RTT credentials (match your repo secret names)
       RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
       RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
 
-      # Timezone used by scripts (and time-gate below)
       LONDON_TZ: Europe/London
 
-      # Transfer window for the bottom-left board (adjust if you want)
+      # Transfer window for the bottom-left board (adjust if needed)
       WINDOW_START: "0725"
       WINDOW_END: "0845"
 
-      # Transfer thresholds (optional; keep or tweak)
       MIN_TRANSFER_VIABLE: "1"
       MIN_TRANSFER_OK: "4"
 
-      # If you’re using workflow_dispatch input FORCE
       FORCE: ${{ github.event.inputs.FORCE || 'false' }}
 
     steps:
@@ -49,44 +44,54 @@ jobs:
           node-version: "20"
 
       - name: Time gate (Europe/London windows or force)
+        id: timegate
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ "${FORCE}" == "true" ]]; then
-            echo "FORCE=true -> skipping time gate"
+            echo "FORCE=true -> running regardless of time window"
+            echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           local_hhmm="$(TZ="${LONDON_TZ}" date +%H%M)"
           echo "Local time: ${local_hhmm} windows: 06:00-08:10, 18:00-22:00"
 
-          # morning window
+          run=false
+
+          # morning window: 06:00–08:10 inclusive of 08:10
           if [[ "${local_hhmm}" > "0559" && "${local_hhmm}" < "0811" ]]; then
-            exit 0
+            run=true
           fi
 
-          # evening window
+          # evening window: 18:00–22:00 inclusive of 22:00
           if [[ "${local_hhmm}" > "1759" && "${local_hhmm}" < "2201" ]]; then
-            exit 0
+            run=true
           fi
 
-          echo "Outside time windows; exiting with 78 to skip."
-          exit 78
+          echo "run=${run}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${run}" != "true" ]]; then
+            echo "Outside time windows; skipping update steps (job will succeed)."
+          fi
 
       - name: Fetch Realtime Trains (STE->WIM) and write status.json
+        if: steps.timegate.outputs.run == 'true'
         run: node scripts/fetch_rtt.js
 
       - name: Build transfer options (write xfer.json)
+        if: steps.timegate.outputs.run == 'true'
         run: node scripts/xfer_plan.js
 
       - name: Commit board JSON
+        if: steps.timegate.outputs.run == 'true'
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Make sure we're up to date before committing
           git pull --rebase origin main
 
           git add status.json xfer.json history.jsonl || true
