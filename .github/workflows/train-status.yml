@@ -3,25 +3,24 @@ name: Train Status (RTT)
 on:
   workflow_dispatch:
     inputs:
-      force_run:
+      force:
         description: "Force run outside time windows"
         required: false
         default: "false"
       window_date:
-        description: "Override window date (YYYY-MM-DD). Leave blank for today (London)."
+        description: "Override window date (YYYY-MM-DD). Blank = auto."
         required: false
         default: ""
-      window_hhmm:
-        description: "Override window anchor time (HHMM). Leave blank for now (London)."
+      window_start_hhmm:
+        description: "Override window anchor time (HHMM). Blank = auto."
         required: false
         default: ""
       verbose:
-        description: "Verbose logging (true/false)"
+        description: "Verbose logging"
         required: false
         default: "false"
   schedule:
-    - cron: "*/5 6-8 * * 1-5"
-    - cron: "*/10 18-22 * * 1-5"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write
@@ -29,89 +28,127 @@ permissions:
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    env:
-      TZ: Europe/London
-
-      # --- Your tracked single service (top-left of page) ---
-      ORIGIN_CRS: STE
-      DEST_CRS: WIM
-      DEP_TIME: "0744"                 # keep your original naming
-      BOOKED_DEPART_HHMM: "0744"       # compatibility with current fetch_rtt.js
-
-      # --- Transfer board search window (bottom-left of page) ---
-      WINDOW_BACK_MINS: "40"
-      WINDOW_FWD_MINS: "180"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Time gate (Europe/London windows or force)
-        id: timegate
+      - name: Time gate + compute window defaults (Europe/London)
+        id: gate
         shell: bash
         run: |
           set -euo pipefail
 
-          FORCE="${{ github.event.inputs.force_run || 'false' }}"
-          if [ "$FORCE" = "true" ]; then
-            echo "Force run requested; not applying time windows."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          VERBOSE="${{ github.event.inputs.verbose || 'false' }}"
 
-          now_hhmm="$(TZ=Europe/London date +%H%M)"
-          echo "Local time: $now_hhmm windows: 06:00-08:10, 18:00-22:00"
+          HHMM="$(TZ=Europe/London date +%H%M)"
+          TODAY="$(TZ=Europe/London date +%F)"
 
+          # Decide if we're in the normal run windows
           in_window=false
-          if [ "$now_hhmm" -ge 0600 ] && [ "$now_hhmm" -le 0810 ]; then in_window=true; fi
-          if [ "$now_hhmm" -ge 1800 ] && [ "$now_hhmm" -le 2200 ]; then in_window=true; fi
+          if [ "$HHMM" -ge 0600 ] && [ "$HHMM" -le 0810 ]; then in_window=true; fi
+          if [ "$HHMM" -ge 1800 ] && [ "$HHMM" -le 2200 ]; then in_window=true; fi
 
-          if [ "$in_window" = "true" ]; then
-            echo "Inside time windows; continuing."
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          if [ "$FORCE" = "true" ]; then
+            run=true
+            reason="forced"
+          elif [ "$in_window" = "true" ]; then
+            run=true
+            reason="in_window"
           else
-            echo "Outside time windows; skipping update."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            run=false
+            reason="outside_window"
           fi
+
+          # Auto window defaults:
+          # - If morning window: anchor "now" (so transfers are relevant immediately)
+          # - Otherwise: show next morning commute by default (tomorrow 07:25)
+          # You can override via workflow_dispatch inputs.
+          if [ "$HHMM" -ge 0600 ] && [ "$HHMM" -le 1100 ]; then
+            AUTO_DATE="$TODAY"
+            AUTO_START="$HHMM"
+          else
+            AUTO_DATE="$(TZ=Europe/London date -d "tomorrow" +%F)"
+            AUTO_START="0725"
+          fi
+
+          # Apply overrides if provided
+          INPUT_DATE="${{ github.event.inputs.window_date }}"
+          INPUT_START="${{ github.event.inputs.window_start_hhmm }}"
+
+          WINDOW_DATE="${INPUT_DATE:-$AUTO_DATE}"
+          WINDOW_START_HHMM="${INPUT_START:-$AUTO_START}"
+
+          echo "Local time: $HHMM (London) / today: $TODAY"
+          echo "Gate: $reason (run=$run)"
+          echo "Window defaults: date=$WINDOW_DATE start=$WINDOW_START_HHMM"
+          echo "Verbose: $VERBOSE"
+
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "window_date=$WINDOW_DATE" >> "$GITHUB_OUTPUT"
+          echo "window_start_hhmm=$WINDOW_START_HHMM" >> "$GITHUB_OUTPUT"
+          echo "verbose=$VERBOSE" >> "$GITHUB_OUTPUT"
 
       - name: Fetch Realtime Trains (STE->WIM) and write status.json
-        if: steps.timegate.outputs.skip != 'true'
+        if: steps.gate.outputs.run == 'true'
         env:
+          TZ: "Europe/London"
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          VERBOSE: ${{ github.event.inputs.verbose || 'false' }}
-        run: |
-          node scripts/fetch_rtt.js
+
+          ORIGIN_CRS: "STE"
+          DEST_CRS: "WIM"
+          BOOKED_DEPART_HHMM: "0744"
+
+          VERBOSE: ${{ steps.gate.outputs.verbose }}
+        run: node scripts/fetch_rtt.js
 
       - name: Build transfer options (write xfer.json)
-        if: steps.timegate.outputs.skip != 'true'
+        if: steps.gate.outputs.run == 'true'
         env:
+          TZ: "Europe/London"
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          WINDOW_DATE: ${{ github.event.inputs.window_date || '' }}
-          WINDOW_HHMM: ${{ github.event.inputs.window_hhmm || '' }}
-          WINDOW_BACK_MINS: ${{ env.WINDOW_BACK_MINS }}
-          WINDOW_FWD_MINS: ${{ env.WINDOW_FWD_MINS }}
-          VERBOSE: ${{ github.event.inputs.verbose || 'false' }}
-        run: |
-          node scripts/xfer_plan.js
+
+          # Auto-computed by gate; override via workflow_dispatch if you want
+          WINDOW_DATE: ${{ steps.gate.outputs.window_date }}
+          WINDOW_START_HHMM: ${{ steps.gate.outputs.window_start_hhmm }}
+
+          BACK_MINS: "40"
+          FWD_MINS: "180"
+          MIN_XFER_MINS: "3"
+          MAX_XFER_MINS: "20"
+
+          SRC_CRS: "SRC"
+          CLJ_CRS: "CLJ"
+          IMW_CRS: "IMW"
+
+          VERBOSE: ${{ steps.gate.outputs.verbose }}
+        run: node scripts/xfer_plan.js
 
       - name: Commit updated JSON
-        if: steps.timegate.outputs.skip != 'true'
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add status.json xfer.json history.jsonl || true
+
+          git add status.json history.jsonl xfer.json || true
+
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
+
           git commit -m "Automated status update via cron"
           git pull --rebase origin main
           git push origin HEAD:main
