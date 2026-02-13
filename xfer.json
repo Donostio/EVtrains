@@ -1,155 +1,81 @@
-#!/usr/bin/env node
-"use strict";
-
-/*
-  Build transfer options (SRC -> CLJ -> IMW).
-  Key change: use RTT realtime times when they differ / or RTT says LATE.
-*/
-
-const fs = require("fs");
-
-const STATUS_PATH = "status.json";
-const OUT_PATH = "xfer.json";
-
-function hhmmToMinutes(hhmm) {
-  if (!hhmm || !/^\d{4}$/.test(hhmm)) return null;
-  const hh = Number(hhmm.slice(0, 2));
-  const mm = Number(hhmm.slice(2, 4));
-  return hh * 60 + mm;
-}
-
-function minutesToHHMM(m) {
-  if (!Number.isFinite(m)) return null;
-  const hh = String(Math.floor(m / 60)).padStart(2, "0");
-  const mm = String(m % 60).padStart(2, "0");
-  return `${hh}${mm}`;
-}
-
-function isLater(a, b) {
-  const am = hhmmToMinutes(a);
-  const bm = hhmmToMinutes(b);
-  if (am === null || bm === null) return false;
-  return am > bm;
-}
-
-function isLateByRTT(loc) {
-  if (!loc) return false;
-  const da = (loc.displayAs || "").toUpperCase();
-  if (da.includes("LATE") || da.includes("DELAY")) return true;
-
-  if (Number.isFinite(loc.realtimeGbttDepartureLateness) && loc.realtimeGbttDepartureLateness > 0) return true;
-  if (Number.isFinite(loc.realtimeGbttArrivalLateness) && loc.realtimeGbttArrivalLateness > 0) return true;
-
-  return (
-    isLater(loc.realtimeDeparture, loc.bookedDeparture || loc.gbttBookedDeparture) ||
-    isLater(loc.realtimeArrival, loc.bookedArrival || loc.gbttBookedArrival)
-  );
-}
-
-function statusFrom(o, d) {
-  if (o?.isCancelled || d?.isCancelled) return "cancelled";
-  return (isLateByRTT(o) || isLateByRTT(d)) ? "delayed" : "on_time";
-}
-
-function pickDepTimes(o) {
-  const booked = o?.gbttBookedDeparture || o?.bookedDeparture || null;
-  const rt = o?.realtimeDeparture || null;
-
-  const late = isLateByRTT({
-    ...o,
-    bookedDeparture: booked,
-  });
-
-  // If RTT indicates late and provides realtime, use it
-  const used = (late && rt) ? rt : booked;
-
-  return { booked, realtime: rt, used, late };
-}
-
-function pickArrTimes(d) {
-  const booked = d?.gbttBookedArrival || d?.bookedArrival || null;
-  const rt = d?.realtimeArrival || null;
-
-  const late = isLateByRTT({
-    ...d,
-    bookedArrival: booked,
-  });
-
-  const used = (late && rt) ? rt : booked;
-
-  return { booked, realtime: rt, used, late };
-}
-
-function computeTransferPlan(status) {
-  // Inputs from your current status.json shape:
-  // - status.origin / status.destination are for STE->WIM service
-  // - This script fabricates a plausible SRC->CLJ->IMW “plan” around those timings.
-  // Keep your existing approach but stop discarding realtime.
-
-  // These were your hard-coded offsets:
-  const SRC_TO_CLJ = 9;  // minutes
-  const CLJ_DWELL = 5;   // minutes
-  const CLJ_TO_IMW = 16; // minutes
-
-  const o = status.origin;
-  const d = status.destination;
-
-  const dep = pickDepTimes(o);
-  const arr = pickArrTimes(d);
-
-  const dep1 = dep.used; // now realtime when late
-  const dep1m = hhmmToMinutes(dep1);
-  const arr1m = dep1m === null ? null : dep1m + SRC_TO_CLJ;
-  const arr1 = minutesToHHMM(arr1m);
-
-  const dep2m = arr1m === null ? null : arr1m + CLJ_DWELL;
-  const dep2 = minutesToHHMM(dep2m);
-
-  const arr2m = dep2m === null ? null : dep2m + CLJ_TO_IMW;
-  const arr2 = minutesToHHMM(arr2m);
-
-  const st = statusFrom(o, d);
-
-  return {
-    generatedAt: status.generatedAt,
-    date: status.date,
-
-    legs: [
-      {
-        from: "SRC",
-        to: "CLJ",
-        departBooked: dep.booked,
-        departRealtime: dep.realtime,
-        departUsed: dep1,
-        arriveUsed: arr1,
-        mins: SRC_TO_CLJ,
-        status: dep.late ? "delayed" : "on_time",
-      },
-      {
-        from: "CLJ",
-        to: "IMW",
-        departUsed: dep2,
-        arriveUsed: arr2,
-        mins: CLJ_TO_IMW,
-        status: st,
-      },
-    ],
-
-    overallStatus: st,
-
-    // pass-through so index.html can show useful labels without re-deriving
-    rtt: {
-      originDisplayAs: o?.displayAs || null,
-      destinationDisplayAs: d?.displayAs || null,
-      originPlatform: o?.platform || null,
-      destinationPlatform: d?.platform || null,
+{
+  "generatedAt": "2026-02-13T10:06:24.179Z",
+  "datePath": "2026/02/14",
+  "runDate": "2026-02-14",
+  "dayLabel": "Tomorrow",
+  "window": {
+    "start": "0725",
+    "end": "0845"
+  },
+  "thresholds": {
+    "viable": 1,
+    "ok": 4
+  },
+  "direct": {
+    "status": "on_time",
+    "srcDep": "0725",
+    "srcDepReal": null,
+    "srcDepUsed": "0725",
+    "srcDepIsEstimated": false,
+    "srcPlat": "2",
+    "imwArr": "0743",
+    "imwArrReal": null,
+    "imwArrUsed": "0743",
+    "imwArrIsEstimated": false,
+    "imwPlat": "2"
+  },
+  "legs": [
+    {
+      "srcDep": "0749",
+      "srcDepReal": null,
+      "srcDepUsed": "0749",
+      "srcDepIsEstimated": false,
+      "srcPlat": "2",
+      "cljArr": "0801",
+      "cljArrReal": null,
+      "cljArrUsed": "0801",
+      "cljArrIsEstimated": false,
+      "cljPlatArr": "14",
+      "cljDep": "0804",
+      "cljDepReal": null,
+      "cljDepUsed": "0804",
+      "cljDepIsEstimated": false,
+      "cljPlatDep": "17",
+      "imwArr": "0808",
+      "imwArrReal": null,
+      "imwArrUsed": "0808",
+      "imwArrIsEstimated": false,
+      "imwPlat": "2",
+      "status": "on_time",
+      "transferMins": 3,
+      "transferViable": true,
+      "transferOk": false
     },
-  };
+    {
+      "srcDep": "0819",
+      "srcDepReal": null,
+      "srcDepUsed": "0819",
+      "srcDepIsEstimated": false,
+      "srcPlat": "2",
+      "cljArr": "0831",
+      "cljArrReal": null,
+      "cljArrUsed": "0831",
+      "cljArrIsEstimated": false,
+      "cljPlatArr": "14",
+      "cljDep": "0839",
+      "cljDepReal": null,
+      "cljDepUsed": "0839",
+      "cljDepIsEstimated": false,
+      "cljPlatDep": "16",
+      "imwArr": "0844",
+      "imwArrReal": null,
+      "imwArrUsed": "0844",
+      "imwArrIsEstimated": false,
+      "imwPlat": "2",
+      "status": "on_time",
+      "transferMins": 8,
+      "transferViable": true,
+      "transferOk": true
+    }
+  ]
 }
-
-(function main() {
-  const status = JSON.parse(fs.readFileSync(STATUS_PATH, "utf8"));
-  const plan = computeTransferPlan(status);
-  fs.writeFileSync(OUT_PATH, JSON.stringify(plan, null, 2));
-  console.log(`Wrote ${OUT_PATH} (${plan.overallStatus})`);
-})();
