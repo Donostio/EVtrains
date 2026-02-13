@@ -2,11 +2,11 @@
 /**
  * xfer_plan.js
  *
- * Key rule change:
- *  - RTT can populate realtime fields that are NOT actual and can differ from public times.
- *  - Overnight (before MONITOR_START_LOCAL), we treat those as noise and use GBTT only.
- *  - During monitoring hours on the same day, we allow realtime estimates (even if not actual).
- *  - On tomorrow/future dates, we only use realtime when *Actual is true.
+ * "Official time only" mode:
+ *  - Always display GBTT booked times (public timetable).
+ *  - Keep realtime fields in JSON for diagnostics, but NEVER use them for "Used" times.
+ *  - Treat "delayed" only when realtime is later than booked (never earlier).
+ *  - Cancelled uses isCancelled flags.
  */
 
 const https = require("https");
@@ -24,9 +24,6 @@ const SRC = "SRC", CLJ = "CLJ", IMW = "IMW";
 
 const WINDOW_START = process.env.WINDOW_START || "0725";
 const WINDOW_END   = process.env.WINDOW_END   || "0845";
-
-// New: only treat non-actual realtime as meaningful after this time (London local)
-const MONITOR_START_LOCAL = process.env.MONITOR_START_LOCAL || "0600";
 
 // Viability + warning thresholds (minutes)
 const MIN_TRANSFER_VIABLE = Number.parseInt(process.env.MIN_TRANSFER_VIABLE || "1", 10);
@@ -147,47 +144,43 @@ async function detailBySvc(svc, iso) {
   }
 }
 
-/* ---------- status + time selection ---------- */
+/* ---------- status + time selection (official only) ---------- */
+function isLater(rt, booked) {
+  const a = toMin(rt), b = toMin(booked);
+  if (a == null || b == null) return false;
+  return a > b;
+}
+
 function statusFrom(o, d) {
   if (o?.isCancelled || d?.isCancelled) return "cancelled";
-  const depVar = o?.gbttBookedDeparture && o?.realtimeDeparture && o.realtimeDeparture !== o.gbttBookedDeparture;
-  const arrVar = d?.gbttBookedArrival && d?.realtimeArrival && d.realtimeArrival !== d.gbttBookedArrival;
-  return (depVar || arrVar) ? "delayed" : "on_time";
+
+  const depLate = isLater(o?.realtimeDeparture, o?.gbttBookedDeparture);
+  const arrLate = isLater(d?.realtimeArrival, d?.gbttBookedArrival);
+
+  return (depLate || arrLate) ? "delayed" : "on_time";
 }
 
-/**
- * allowEstimate semantics:
- *  - true: we may use realtime values even when not actual
- *  - false: use realtime only when *Actual flag is true
- */
-function pickDepTimes(loc, allowEstimate) {
+// Always return booked as Used; never “estimate”.
+function pickDepTimesOfficial(loc) {
   const booked = loc?.gbttBookedDeparture || null;
   const rtVal = loc?.realtimeDeparture || null;
-  const rtActual = !!loc?.realtimeDepartureActual;
-
-  const useRT = allowEstimate ? !!rtVal : (!!rtVal && rtActual);
 
   return {
     booked,
-    realtime: useRT ? rtVal : null,
-    used: (useRT ? rtVal : null) || booked,
-    isEstimated: useRT,
-    isActual: useRT ? rtActual : false,
+    realtime: rtVal,          // keep for debugging
+    used: booked,             // OFFICIAL ONLY
+    isEstimated: false,       // never
   };
 }
-function pickArrTimes(loc, allowEstimate) {
+function pickArrTimesOfficial(loc) {
   const booked = loc?.gbttBookedArrival || null;
   const rtVal = loc?.realtimeArrival || null;
-  const rtActual = !!loc?.realtimeArrivalActual;
-
-  const useRT = allowEstimate ? !!rtVal : (!!rtVal && rtActual);
 
   return {
     booked,
-    realtime: useRT ? rtVal : null,
-    used: (useRT ? rtVal : null) || booked,
-    isEstimated: useRT,
-    isActual: useRT ? rtActual : false,
+    realtime: rtVal,          // keep for debugging
+    used: booked,             // OFFICIAL ONLY
+    isEstimated: false,       // never
   };
 }
 
@@ -202,15 +195,7 @@ function pickArrTimes(loc, allowEstimate) {
   const targetISO = useTomorrow ? tomorrowISO : todayISO;
   const datePath = isoToPath(targetISO);
 
-  // Overnight guard:
-  // - Same-day, before MONITOR_START_LOCAL: do NOT allow non-actual estimates
-  // - Same-day, after MONITOR_START_LOCAL: allow estimates
-  // - Tomorrow/future: never allow non-actual estimates
-  const isSameDay = !useTomorrow;
-  const withinMonitor = toMin(nowHHMM) >= toMin(MONITOR_START_LOCAL);
-  const allowEstimate = isSameDay && withinMonitor;
-
-  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END} monitorStart=${MONITOR_START_LOCAL} allowEstimate=${allowEstimate}`);
+  console.log(`[xfer_plan] now=${nowHHMM} target=${targetISO} window=${WINDOW_START}-${WINDOW_END} official_only=true`);
 
   const out = {
     generatedAt: new Date().toISOString(),
@@ -234,8 +219,8 @@ function pickArrTimes(loc, allowEstimate) {
       const det = await detailBySvc(svc, targetISO);
       const o = stop(det, SRC), iw = stop(det, IMW);
 
-      const dep = pickDepTimes(o, allowEstimate);
-      const arr = pickArrTimes(iw, allowEstimate);
+      const dep = pickDepTimesOfficial(o);
+      const arr = pickArrTimesOfficial(iw);
 
       out.direct = {
         status: statusFrom(o, iw),
@@ -287,8 +272,8 @@ function pickArrTimes(loc, allowEstimate) {
 
       if (!o?.gbttBookedDeparture || !cj?.gbttBookedArrival) continue;
 
-      const dep1 = pickDepTimes(o, allowEstimate);
-      const arr1 = pickArrTimes(cj, allowEstimate);
+      const dep1 = pickDepTimesOfficial(o);
+      const arr1 = pickArrTimesOfficial(cj);
 
       const arrMin = toMin(arr1.used);
       if (arrMin == null) continue;
@@ -316,8 +301,8 @@ function pickArrTimes(loc, allowEstimate) {
 
           if (!cjs?.gbttBookedDeparture || !imw?.gbttBookedArrival) continue;
 
-          const dep2 = pickDepTimes(cjs, allowEstimate);
-          const arr2 = pickArrTimes(imw, allowEstimate);
+          const dep2 = pickDepTimesOfficial(cjs);
+          const arr2 = pickArrTimesOfficial(imw);
 
           const depMin = toMin(dep2.used);
           if (depMin == null) continue;
