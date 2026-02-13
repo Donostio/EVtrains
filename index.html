@@ -105,7 +105,7 @@
   /* Middle column */
   .mid-cell{ display:flex; flex-direction:column; gap:.7rem; align-items:center; }
 
-  /* Transfer line: platform text + mins */
+  /* A connection row: transfer | times kept together */
   .pair{
     display:grid;
     grid-template-columns:max-content max-content;
@@ -113,8 +113,15 @@
     column-gap:12px;
     white-space:nowrap;
   }
-  .transfer{ font-size:clamp(12px,1.7vw,18px); color:var(--fg); }
-  .transfer strong{ font-weight:800 }
+
+  /* Transfer line: "plt" not bold, platform numbers bold */
+  .transfer{
+    font-size:clamp(12px,1.7vw,18px);
+    color:var(--fg);
+    font-weight:400;
+  }
+  .transfer .plt-label{ font-weight:400; }
+  .transfer .plt-num{ font-weight:900; }
 
   /* Solid white isosceles triangle arrow (visible) */
   .tri{
@@ -356,9 +363,9 @@ function renderBL(data){
         <div class="mid-cell">
           <div class="pair">
             <div class="transfer">
-              <strong>Plat</strong> ${leg.cljPlatArr||"?"}
+              <span class="plt-label">plt</span> <span class="plt-num">${leg.cljPlatArr||"?"}</span>
               <span class="tri" aria-hidden="true"></span>
-              <strong>Plat</strong> ${leg.cljPlatDep||"?"}
+              <span class="plt-label">plt</span> <span class="plt-num">${leg.cljPlatDep||"?"}</span>
             </div>
             <div class="${minsClass}">${minsTxt}</div>
           </div>
