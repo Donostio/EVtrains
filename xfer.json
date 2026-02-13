@@ -1,81 +1,371 @@
 {
-  "generatedAt": "2026-02-13T10:06:24.179Z",
-  "datePath": "2026/02/14",
-  "runDate": "2026-02-14",
-  "dayLabel": "Tomorrow",
+  "generatedAt": "2026-02-13T16:22:51.698Z",
+  "date": "2026-02-13",
   "window": {
-    "start": "0725",
-    "end": "0845"
+    "tz": "Europe/London",
+    "startHHMM": "1542",
+    "backMins": 40,
+    "fwdMins": 180
   },
-  "thresholds": {
-    "viable": 1,
-    "ok": 4
+  "searches": {
+    "src_clj": "https://api.rtt.io/api/v1/json/search/SRC/to/CLJ/2026/02/13/1542",
+    "clj_imw": "https://api.rtt.io/api/v1/json/search/CLJ/to/IMW/2026/02/13/1542"
   },
-  "direct": {
-    "status": "on_time",
-    "srcDep": "0725",
-    "srcDepReal": null,
-    "srcDepUsed": "0725",
-    "srcDepIsEstimated": false,
-    "srcPlat": "2",
-    "imwArr": "0743",
-    "imwArrReal": null,
-    "imwArrUsed": "0743",
-    "imwArrIsEstimated": false,
-    "imwPlat": "2"
+  "legs": {
+    "src_clj": [
+      {
+        "serviceUid": "P26231",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1549",
+        "arr": "1604",
+        "depDelayMins": 0,
+        "arrDelayMins": 3,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      {
+        "serviceUid": "P26238",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1619",
+        "arr": "1630",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "on_time"
+      },
+      {
+        "serviceUid": "P26236",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1621",
+        "arr": "1631",
+        "depDelayMins": 11,
+        "arrDelayMins": 11,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      {
+        "serviceUid": "P45610",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1625",
+        "arr": "1633",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "16",
+        "status": "on_time"
+      },
+      {
+        "serviceUid": "P26244",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1640",
+        "arr": "1649",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "on_time"
+      }
+    ],
+    "clj_imw": [
+      {
+        "serviceUid": "P51666",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1553",
+        "arr": "1557",
+        "depDelayMins": 7,
+        "arrDelayMins": 7,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "delayed"
+      },
+      {
+        "serviceUid": "P51669",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1604",
+        "arr": "1608",
+        "depDelayMins": 4,
+        "arrDelayMins": 4,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "delayed"
+      },
+      {
+        "serviceUid": "P51671",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1611",
+        "arr": "1616",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "17",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      {
+        "serviceUid": "P51674",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1622",
+        "arr": "1626",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      {
+        "serviceUid": "P51676",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1633",
+        "arr": "1637",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      {
+        "serviceUid": "P45610",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1637",
+        "arr": "1641",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "16",
+        "platformTo": "2",
+        "status": "on_time"
+      }
+    ]
   },
-  "legs": [
+  "transfers": [
     {
-      "srcDep": "0749",
-      "srcDepReal": null,
-      "srcDepUsed": "0749",
-      "srcDepIsEstimated": false,
-      "srcPlat": "2",
-      "cljArr": "0801",
-      "cljArrReal": null,
-      "cljArrUsed": "0801",
-      "cljArrIsEstimated": false,
-      "cljPlatArr": "14",
-      "cljDep": "0804",
-      "cljDepReal": null,
-      "cljDepUsed": "0804",
-      "cljDepIsEstimated": false,
-      "cljPlatDep": "17",
-      "imwArr": "0808",
-      "imwArrReal": null,
-      "imwArrUsed": "0808",
-      "imwArrIsEstimated": false,
-      "imwPlat": "2",
-      "status": "on_time",
-      "transferMins": 3,
-      "transferViable": true,
-      "transferOk": false
+      "src_clj": {
+        "serviceUid": "P26231",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1549",
+        "arr": "1604",
+        "depDelayMins": 0,
+        "arrDelayMins": 3,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      "clj_imw": {
+        "serviceUid": "P51671",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1611",
+        "arr": "1616",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "17",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 7,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "17"
+      }
     },
     {
-      "srcDep": "0819",
-      "srcDepReal": null,
-      "srcDepUsed": "0819",
-      "srcDepIsEstimated": false,
-      "srcPlat": "2",
-      "cljArr": "0831",
-      "cljArrReal": null,
-      "cljArrUsed": "0831",
-      "cljArrIsEstimated": false,
-      "cljPlatArr": "14",
-      "cljDep": "0839",
-      "cljDepReal": null,
-      "cljDepUsed": "0839",
-      "cljDepIsEstimated": false,
-      "cljPlatDep": "16",
-      "imwArr": "0844",
-      "imwArrReal": null,
-      "imwArrUsed": "0844",
-      "imwArrIsEstimated": false,
-      "imwPlat": "2",
-      "status": "on_time",
-      "transferMins": 8,
-      "transferViable": true,
-      "transferOk": true
+      "src_clj": {
+        "serviceUid": "P26231",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1549",
+        "arr": "1604",
+        "depDelayMins": 0,
+        "arrDelayMins": 3,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      "clj_imw": {
+        "serviceUid": "P51674",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1622",
+        "arr": "1626",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 18,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "1"
+      }
+    },
+    {
+      "src_clj": {
+        "serviceUid": "P26238",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1619",
+        "arr": "1630",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "on_time"
+      },
+      "clj_imw": {
+        "serviceUid": "P51676",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1633",
+        "arr": "1637",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 3,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "1"
+      }
+    },
+    {
+      "src_clj": {
+        "serviceUid": "P26238",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1619",
+        "arr": "1630",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "on_time"
+      },
+      "clj_imw": {
+        "serviceUid": "P45610",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1637",
+        "arr": "1641",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "16",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 7,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "16"
+      }
+    },
+    {
+      "src_clj": {
+        "serviceUid": "P26236",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1621",
+        "arr": "1631",
+        "depDelayMins": 11,
+        "arrDelayMins": 11,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      "clj_imw": {
+        "serviceUid": "P51676",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1633",
+        "arr": "1637",
+        "depDelayMins": 0,
+        "arrDelayMins": 0,
+        "platformFrom": "1",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 2,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "1"
+      }
+    },
+    {
+      "src_clj": {
+        "serviceUid": "P26236",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1621",
+        "arr": "1631",
+        "depDelayMins": 11,
+        "arrDelayMins": 11,
+        "platformFrom": "2",
+        "platformTo": "14",
+        "status": "delayed"
+      },
+      "clj_imw": {
+        "serviceUid": "P45610",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1637",
+        "arr": "1641",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "16",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 6,
+      "change": {
+        "fromPlatform": "14",
+        "toPlatform": "16"
+      }
+    },
+    {
+      "src_clj": {
+        "serviceUid": "P45610",
+        "from": "SRC",
+        "to": "CLJ",
+        "dep": "1625",
+        "arr": "1633",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "2",
+        "platformTo": "16",
+        "status": "on_time"
+      },
+      "clj_imw": {
+        "serviceUid": "P45610",
+        "from": "CLJ",
+        "to": "IMW",
+        "dep": "1637",
+        "arr": "1641",
+        "depDelayMins": 0,
+        "arrDelayMins": -1,
+        "platformFrom": "16",
+        "platformTo": "2",
+        "status": "on_time"
+      },
+      "waitMins": 4,
+      "change": {
+        "fromPlatform": "16",
+        "toPlatform": "16"
+      }
     }
   ]
 }
