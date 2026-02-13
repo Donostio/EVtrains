@@ -56,22 +56,31 @@ jobs:
           echo "---- scripts ----"
           ls -la scripts || true
 
-      - name: Fetch Realtime Trains and write status.json
-        if: steps.gate.outputs.run == 'true'
+      - name: Fetch Realtime Trains (STE->WIM) and write status.json
         env:
-          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
-          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          ORIGIN_CRS: "STE"
-          DEST_CRS: "WIM"
-          DEP_TIME: "0739"   # set this to the service you actually want to track
+          RTT_USER: "${{ secrets.RTT_USER }}"
+          RTT_PASS: "${{ secrets.RTT_PASS }}"
+          # (optional backwards-compat — harmless)
+          RTT_USERNAME: "${{ secrets.RTT_USER }}"
+          RTT_PASSWORD: "${{ secrets.RTT_PASS }}"
+          ORIGIN_CRS: "${{ env.ORIGIN_CRS }}"
+          DEST_CRS: "${{ env.DEST_CRS }}"
+          BOOKED_DEPART_HHMM: "${{ env.BOOKED_DEPART_HHMM }}"
+          LONDON_TZ: "${{ env.LONDON_TZ }}"
+          SWITCH_GRACE_MINS: "${{ env.SWITCH_GRACE_MINS }}"
         run: node scripts/fetch_rtt.js
 
-      - name: Build transfer options (write xfer.json)
-        if: steps.gate.outputs.run == 'true'
+      - name: Build SRC-CLJ-IMW transfer options (write xfer.json)
         env:
-          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
-          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
+          RTT_USER: "${{ secrets.RTT_USER }}"
+          RTT_PASS: "${{ secrets.RTT_PASS }}"
+          RTT_USERNAME: "${{ secrets.RTT_USER }}"
+          RTT_PASSWORD: "${{ secrets.RTT_PASS }}"
+          LONDON_TZ: "Europe/London"
+          WINDOW_BACK_MINS: "40"
+          WINDOW_FWD_MINS: "180"
         run: node scripts/xfer_plan.js
+
 
       - name: Commit board JSON
         if: steps.gate.outputs.run == 'true'
