@@ -1,16 +1,9 @@
 name: Train Status (RTT)
 
-permissions:
-  contents: write
-
 on:
-  schedule:
-    # Wide UTC envelopes; local London gate decides whether to proceed (DST-safe)
-    - cron: "*/5 4-9 * * 1-5"
-    - cron: "*/5 16-23 * * 1-5"
   workflow_dispatch:
     inputs:
-      force:
+      force_run:
         description: "Force run outside time windows"
         required: false
         default: "false"
@@ -18,39 +11,40 @@ on:
         description: "Override window date (YYYY-MM-DD). Leave blank for today (London)."
         required: false
         default: ""
-      window_start_hhmm:
+      window_hhmm:
         description: "Override window anchor time (HHMM). Leave blank for now (London)."
         required: false
         default: ""
+      verbose:
+        description: "Verbose logging (true/false)"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "*/5 6-8 * * 1-5"
+    - cron: "*/10 18-22 * * 1-5"
+
+permissions:
+  contents: write
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
-
     env:
-      # Single-train tracker (top-left)
-      ORIGIN_CRS: "STE"
-      DEST_CRS: "WIM"
-      BOOKED_DEPART_HHMM: "0744"
+      TZ: Europe/London
 
-      # London-local behaviour
-      LONDON_TZ: "Europe/London"
-      TIME_WINDOWS_LOCAL: "06:00-08:10,18:00-22:00"
+      # --- Your tracked single service (top-left of page) ---
+      ORIGIN_CRS: STE
+      DEST_CRS: WIM
+      DEP_TIME: "0744"                 # keep your original naming
+      BOOKED_DEPART_HHMM: "0744"       # compatibility with current fetch_rtt.js
 
-      # Fetch script uses this when deciding “today vs tomorrow”
-      SWITCH_GRACE_MINS: "2"
-
-      # Transfer planner defaults
-      BACK_MINS: "40"
-      FWD_MINS: "180"
-      MIN_XFER_MINS: "3"
-      MAX_XFER_MINS: "20"
+      # --- Transfer board search window (bottom-left of page) ---
+      WINDOW_BACK_MINS: "40"
+      WINDOW_FWD_MINS: "180"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -58,92 +52,66 @@ jobs:
           node-version: "20"
 
       - name: Time gate (Europe/London windows or force)
-        id: gate
+        id: timegate
         shell: bash
         run: |
           set -euo pipefail
 
-          FORCE="${{ github.event.inputs.force || 'false' }}"
-
+          FORCE="${{ github.event.inputs.force_run || 'false' }}"
           if [ "$FORCE" = "true" ]; then
-            echo "Force run enabled; bypassing time gate."
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Force run requested; not applying time windows."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Current London time HH:MM
-          HM="$(TZ=${LONDON_TZ} date +%H:%M)"
-          echo "Local time: $HM windows: ${TIME_WINDOWS_LOCAL}"
+          now_hhmm="$(TZ=Europe/London date +%H%M)"
+          echo "Local time: $now_hhmm windows: 06:00-08:10, 18:00-22:00"
 
-          # Convert HH:MM -> minutes
-          to_mins () { echo $((10#${1%:*}*60 + 10#${1#*:})); }
+          in_window=false
+          if [ "$now_hhmm" -ge 0600 ] && [ "$now_hhmm" -le 0810 ]; then in_window=true; fi
+          if [ "$now_hhmm" -ge 1800 ] && [ "$now_hhmm" -le 2200 ]; then in_window=true; fi
 
-          CUR="$(to_mins "$HM")"
-
-          ok=false
-          IFS=',' read -ra WINS <<< "${TIME_WINDOWS_LOCAL}"
-          for w in "${WINS[@]}"; do
-            w="$(echo "$w" | xargs)"
-            start="${w%-*}"
-            end="${w#*-}"
-            s="$(to_mins "$start")"
-            e="$(to_mins "$end")"
-            if [ "$CUR" -ge "$s" ] && [ "$CUR" -le "$e" ]; then
-              ok=true
-              break
-            fi
-          done
-
-          if [ "$ok" = "true" ]; then
-            echo "Inside time window; proceeding."
-            echo "run=true" >> "$GITHUB_OUTPUT"
+          if [ "$in_window" = "true" ]; then
+            echo "Inside time windows; continuing."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Outside time windows; skipping updates."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Outside time windows; skipping update."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Fetch Realtime Trains (STE->WIM) and write status.json
-        if: steps.gate.outputs.run == 'true'
+        if: steps.timegate.outputs.skip != 'true'
         env:
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          ORIGIN_CRS: ${{ env.ORIGIN_CRS }}
-          DEST_CRS: ${{ env.DEST_CRS }}
-          BOOKED_DEPART_HHMM: ${{ env.BOOKED_DEPART_HHMM }}
-          LONDON_TZ: ${{ env.LONDON_TZ }}
-          SWITCH_GRACE_MINS: ${{ env.SWITCH_GRACE_MINS }}
-        run: node scripts/fetch_rtt.js
+          VERBOSE: ${{ github.event.inputs.verbose || 'false' }}
+        run: |
+          node scripts/fetch_rtt.js
 
       - name: Build transfer options (write xfer.json)
-        if: steps.gate.outputs.run == 'true'
+        if: steps.timegate.outputs.skip != 'true'
         env:
           RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
           RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-          TZ: ${{ env.LONDON_TZ }}
-
-          WINDOW_DATE: ${{ github.event.inputs.window_date }}
-          WINDOW_START_HHMM: ${{ github.event.inputs.window_start_hhmm }}
-
-          BACK_MINS: ${{ env.BACK_MINS }}
-          FWD_MINS: ${{ env.FWD_MINS }}
-          MIN_XFER_MINS: ${{ env.MIN_XFER_MINS }}
-          MAX_XFER_MINS: ${{ env.MAX_XFER_MINS }}
-        run: node scripts/xfer_plan.js
+          WINDOW_DATE: ${{ github.event.inputs.window_date || '' }}
+          WINDOW_HHMM: ${{ github.event.inputs.window_hhmm || '' }}
+          WINDOW_BACK_MINS: ${{ env.WINDOW_BACK_MINS }}
+          WINDOW_FWD_MINS: ${{ env.WINDOW_FWD_MINS }}
+          VERBOSE: ${{ github.event.inputs.verbose || 'false' }}
+        run: |
+          node scripts/xfer_plan.js
 
       - name: Commit updated JSON
-        if: steps.gate.outputs.run == 'true'
-        shell: bash
+        if: steps.timegate.outputs.skip != 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add status.json xfer.json history.jsonl || true
-
-          # No-op if nothing changed
-          git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
-
-          git commit -m "Update board snapshots"
-
-          # Push; if non-fast-forward (rare concurrency), rebase then push again
-          git push || (git pull --rebase && git push)
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Automated status update via cron"
+          git pull --rebase origin main
+          git push origin HEAD:main
