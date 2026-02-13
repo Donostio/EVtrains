@@ -1,38 +1,49 @@
-/**
- * Build transfer options for:
- *  - SRC -> CLJ
- *  - CLJ -> IMW
- * and write xfer.json
- *
- * Key fix: widen the back-scan window so early trains (e.g. 07:25) aren’t missed.
- *
- * Env:
- *  - RTT_USER / RTT_PASS (preferred) OR RTT_USERNAME / RTT_PASSWORD
- *  - LONDON_TZ (default Europe/London)
- *  - WINDOW_BACK_MINS (default 40)  <-- important
- *  - WINDOW_FWD_MINS (default 180)
- */
+// scripts/xfer_plan.js
+// Builds simple transfer options for SRC->CLJ + CLJ->IMW around a time window.
+// Writes xfer.json for the dashboard (index.html expects {direct, transfers, generatedAt,...})
 
 const fs = require("fs");
-const path = require("path");
 
-const OUT_XFER = path.join(process.cwd(), "xfer.json");
+const USER = process.env.RTT_USERNAME;
+const PASS = process.env.RTT_PASSWORD;
 
-function envCreds() {
-  const user = process.env.RTT_USER || process.env.RTT_USERNAME;
-  const pass = process.env.RTT_PASS || process.env.RTT_PASSWORD;
-  if (!user || !pass) {
-    throw new Error(
-      "Missing RTT credentials. Provide secrets as RTT_USER/RTT_PASS (preferred) or RTT_USERNAME/RTT_PASSWORD."
-    );
-  }
-  return { user, pass };
+if (!USER || !PASS) {
+  console.error("Missing RTT_USERNAME / RTT_PASSWORD secrets.");
+  process.exit(2);
 }
 
-function londonNow(tz = "Europe/London") {
-  const d = new Date();
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: tz,
+const TZ = process.env.TZ || "Europe/London";
+
+// Window behaviour:
+// - WINDOW_START_HHMM: anchor time for searches (HHMM). If omitted, uses "now" (London time).
+// - BACK_MINS / FWD_MINS: how far back/forward from anchor to consider trains (used by pairing logic).
+// Note: RTT search endpoint takes a single HHMM; it returns a board around that time.
+const WINDOW_START_HHMM = process.env.WINDOW_START_HHMM || ""; // e.g. "0735"
+const BACK_MINS = parseInt(process.env.BACK_MINS || "40", 10);
+const FWD_MINS = parseInt(process.env.FWD_MINS || "180", 10);
+
+// Stations
+const SRC = process.env.SRC_CRS || "SRC";
+const CLJ = process.env.CLJ_CRS || "CLJ";
+const IMW = process.env.IMW_CRS || "IMW";
+
+// For “tomorrow morning” boards during the day:
+// - If WINDOW_DATE is provided, use it (YYYY-MM-DD).
+// - Else use today in Europe/London.
+const WINDOW_DATE = process.env.WINDOW_DATE || ""; // YYYY-MM-DD
+
+// Transfer constraints
+const MIN_XFER_MINS = parseInt(process.env.MIN_XFER_MINS || "3", 10);
+const MAX_XFER_MINS = parseInt(process.env.MAX_XFER_MINS || "20", 10);
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function londonNowParts() {
+  // Use Intl to get Europe/London “now” without extra deps.
+  const dtf = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -40,202 +51,238 @@ function londonNow(tz = "Europe/London") {
     minute: "2-digit",
     hour12: false,
   });
-  const parts = fmt.formatToParts(d).reduce((acc, p) => {
-    if (p.type !== "literal") acc[p.type] = p.value;
-    return acc;
-  }, {});
-  return {
-    yyyy: parts.year,
-    mm: parts.month,
-    dd: parts.day,
-    hh: parts.hour,
-    mi: parts.minute,
-  };
+  const parts = dtf.formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const yyyy = get("year");
+  const mm = get("month");
+  const dd = get("day");
+  const HH = get("hour");
+  const MM = get("minute");
+  return { yyyy, mm, dd, HH, MM };
 }
 
-function hmToMins(hm) {
-  const h = Number(hm.slice(0, 2));
-  const m = Number(hm.slice(2, 4));
+function ymdTodayLondon() {
+  const { yyyy, mm, dd } = londonNowParts();
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function hhmmNowLondon() {
+  const { HH, MM } = londonNowParts();
+  return `${HH}${MM}`;
+}
+
+function toYMD(dateStr) {
+  // Expects YYYY-MM-DD; minimal sanity.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return "";
+  return dateStr;
+}
+
+function hhmmToMins(hhmm) {
+  const h = parseInt(hhmm.slice(0, 2), 10);
+  const m = parseInt(hhmm.slice(2, 4), 10);
   return h * 60 + m;
 }
 
-function minsToHHMM(mins) {
-  const h = String(Math.floor(mins / 60)).padStart(2, "0");
-  const m = String(mins % 60).padStart(2, "0");
-  return `${h}${m}`;
+function minsToHHMM(totalMins) {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return `${pad2(h)}${pad2(m)}`;
 }
 
-async function rttFetchJson(url, user, pass) {
-  const basic = Buffer.from(`${user}:${pass}`).toString("base64");
-  const res = await fetch(url, { headers: { Authorization: `Basic ${basic}` } });
+async function rttGet(url) {
+  const auth = Buffer.from(`${USER}:${PASS}`).toString("base64");
+  const res = await fetch(url, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}\n${txt.slice(0, 500)}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} for ${url}\n${body.slice(0, 500)}`);
   }
   return res.json();
 }
 
-function pickBestTime(loc, which) {
-  // which: "dep" or "arr"
-  // Use actual if present, else realtime, else booked
-  if (which === "dep") return loc.actualDeparture || loc.realtimeDeparture || loc.gbttBookedDeparture || null;
-  return loc.actualArrival || loc.realtimeArrival || loc.gbttBookedArrival || null;
+function pickLoc(call, crs) {
+  if (!call || !Array.isArray(call.locations)) return null;
+  return call.locations.find((l) => (l.crs || "").toUpperCase() === crs.toUpperCase()) || null;
 }
 
-async function fetchLegServices({ from, to, dateParts, startHHMM, user, pass }) {
-  const { yyyy, mm, dd } = dateParts;
-  const url = `https://api.rtt.io/api/v1/json/search/${from}/to/${to}/${yyyy}/${mm}/${dd}/${startHHMM}`;
-  const j = await rttFetchJson(url, user, pass);
-  const services = Array.isArray(j.services) ? j.services : [];
-  return { url, services };
-}
-
-async function getServiceDetail({ uid, dateParts, user, pass }) {
-  const { yyyy, mm, dd } = dateParts;
-  const url = `https://api.rtt.io/api/v1/json/service/${uid}/${yyyy}/${mm}/${dd}`;
-  const j = await rttFetchJson(url, user, pass);
-  return { url, detail: j };
-}
-
-function getLoc(detail, crs) {
-  const locs = Array.isArray(detail.locations) ? detail.locations : [];
-  return locs.find((l) => l?.crs === crs);
-}
-
-function summariseService({ detail, from, to }) {
-  const a = getLoc(detail, from);
-  const b = getLoc(detail, to);
-  if (!a || !b) return null;
-
-  const dep = pickBestTime(a, "dep");
-  const arr = pickBestTime(b, "arr");
-
-  const platformFrom = a.platform || null;
-  const platformTo = b.platform || null;
-
-  const isCancelled = Boolean(a.isCancelled) || Boolean(b.isCancelled) || Boolean(detail.isCancelled);
-
-  // delay mins from booked, based on the *effective* time RTT gives you
+function locTimes(loc) {
+  // RTT provides a mixture depending on endpoint. We prefer:
+  // - realtimeDeparture/realtimeArrival if present
+  // - otherwise gbttBookedDeparture/gbttBookedArrival
+  const dep =
+    (loc.realtimeDeparture || loc.realtimeGBTTDeparture || loc.gbttBookedDeparture || "").replace(":", "");
+  const arr =
+    (loc.realtimeArrival || loc.realtimeGBTTArrival || loc.gbttBookedArrival || "").replace(":", "");
   const depDelay =
-    (a.gbttBookedDeparture && dep) ? hmToMins(dep) - hmToMins(a.gbttBookedDeparture) : null;
+    typeof loc.departureDelay === "number"
+      ? loc.departureDelay
+      : typeof loc.departureDelayMins === "number"
+      ? loc.departureDelayMins
+      : 0;
   const arrDelay =
-    (b.gbttBookedArrival && arr) ? hmToMins(arr) - hmToMins(b.gbttBookedArrival) : null;
+    typeof loc.arrivalDelay === "number"
+      ? loc.arrivalDelay
+      : typeof loc.arrivalDelayMins === "number"
+      ? loc.arrivalDelayMins
+      : 0;
 
-  const status = isCancelled ? "cancelled" : ((depDelay ?? 0) > 0 || (arrDelay ?? 0) > 0 ? "delayed" : "on_time");
-
-  return {
-    serviceUid: detail.serviceUid || null,
-    from,
-    to,
-    dep,
-    arr,
-    depDelayMins: depDelay,
-    arrDelayMins: arrDelay,
-    platformFrom,
-    platformTo,
-    status,
-  };
+  return { dep, arr, depDelayMins: depDelay, arrDelayMins: arrDelay };
 }
 
-async function build() {
-  const { user, pass } = envCreds();
+function statusFromDelays(depDelay, arrDelay, cancelled) {
+  if (cancelled) return "cancelled";
+  if ((depDelay || 0) > 0 || (arrDelay || 0) > 0) return "delayed";
+  return "on_time";
+}
 
-  const LONDON_TZ = process.env.LONDON_TZ || "Europe/London";
-  const backMins = Number(process.env.WINDOW_BACK_MINS || "40"); // IMPORTANT: was too small before
-  const fwdMins = Number(process.env.WINDOW_FWD_MINS || "180");
+function normPlatform(p) {
+  if (p === null || p === undefined) return "";
+  return String(p).trim();
+}
 
-  const now = londonNow(LONDON_TZ);
-  const nowMins = Number(now.hh) * 60 + Number(now.mi);
-  const startMins = Math.max(0, nowMins - backMins);
-  const startHHMM = minsToHHMM(startMins);
+function inWindow(hhmm, anchorHHMM, backMins, fwdMins) {
+  if (!hhmm || hhmm.length !== 4) return false;
+  const t = hhmmToMins(hhmm);
+  const a = hhmmToMins(anchorHHMM);
+  return t >= a - backMins && t <= a + fwdMins;
+}
 
-  const dateParts = { yyyy: now.yyyy, mm: now.mm, dd: now.dd };
+async function main() {
+  const date = toYMD(WINDOW_DATE) || ymdTodayLondon();
+  const startHHMM = WINDOW_START_HHMM || hhmmNowLondon();
 
-  // Legs you care about
-  const LEG1 = { from: "SRC", to: "CLJ", label: "SRC-CLJ" };
-  const LEG2 = { from: "CLJ", to: "IMW", label: "CLJ-IMW" };
+  // RTT Search API:
+  // https://api.rtt.io/api/v1/json/search/{from}/to/{to}/{yyyy}/{mm}/{dd}/{hhmm}
+  const [yyyy, mm, dd] = date.split("-");
+  const srcCljUrl = `https://api.rtt.io/api/v1/json/search/${SRC}/to/${CLJ}/${yyyy}/${mm}/${dd}/${startHHMM}`;
+  const cljImwUrl = `https://api.rtt.io/api/v1/json/search/${CLJ}/to/${IMW}/${yyyy}/${mm}/${dd}/${startHHMM}`;
 
-  // Fetch search slices
-  const leg1Search = await fetchLegServices({ ...LEG1, dateParts, startHHMM, user, pass });
-  const leg2Search = await fetchLegServices({ ...LEG2, dateParts, startHHMM, user, pass });
+  const out = {
+    generatedAt: new Date().toISOString(),
+    date,
+    window: { tz: TZ, startHHMM, backMins: BACK_MINS, fwdMins: FWD_MINS },
+    searches: { src_clj: srcCljUrl, clj_imw: cljImwUrl },
+    // index.html expects these:
+    direct: null,
+    transfers: [],
+    // optional debug:
+    legs: { src_clj: [], clj_imw: [] },
+  };
 
-  // Pull details (limit to reasonable size)
-  const leg1Uids = leg1Search.services.map((s) => s.serviceUid).filter(Boolean).slice(0, 25);
-  const leg2Uids = leg2Search.services.map((s) => s.serviceUid).filter(Boolean).slice(0, 25);
+  const [srcClj, cljImw] = await Promise.all([rttGet(srcCljUrl), rttGet(cljImwUrl)]);
 
-  const leg1Details = await Promise.all(
-    leg1Uids.map((uid) => getServiceDetail({ uid, dateParts, user, pass }).then((r) => r.detail).catch(() => null))
-  );
-  const leg2Details = await Promise.all(
-    leg2Uids.map((uid) => getServiceDetail({ uid, dateParts, user, pass }).then((r) => r.detail).catch(() => null))
-  );
+  const srcServices = (srcClj.services || []).slice(0, 50);
+  const cljServices = (cljImw.services || []).slice(0, 50);
 
-  const leg1 = leg1Details
-    .filter(Boolean)
-    .map((d) => summariseService({ detail: d, from: LEG1.from, to: LEG1.to }))
-    .filter(Boolean)
-    .filter((s) => s.dep && s.arr)
-    .filter((s) => {
-      const t = hmToMins(s.dep);
-      return t >= startMins && t <= nowMins + fwdMins;
-    })
-    .sort((a, b) => hmToMins(a.dep) - hmToMins(b.dep));
+  // Normalise legs SRC->CLJ
+  for (const s of srcServices) {
+    const from = pickLoc(s, SRC);
+    const to = pickLoc(s, CLJ);
+    if (!from || !to) continue;
 
-  const leg2 = leg2Details
-    .filter(Boolean)
-    .map((d) => summariseService({ detail: d, from: LEG2.from, to: LEG2.to }))
-    .filter(Boolean)
-    .filter((s) => s.dep && s.arr)
-    .filter((s) => {
-      const t = hmToMins(s.dep);
-      return t >= startMins && t <= nowMins + fwdMins;
-    })
-    .sort((a, b) => hmToMins(a.dep) - hmToMins(b.dep));
+    const ft = locTimes(from);
+    const tt = locTimes(to);
+    const cancelled = !!(from.isCancelled || to.isCancelled || s.isCancelled);
 
-  // Build transfer pairs where CLJ wait is sensible (>=2 mins and <=25 mins)
-  const options = [];
-  for (const a of leg1) {
-    const arrCLJ = hmToMins(a.arr);
-    for (const b of leg2) {
-      const depCLJ = hmToMins(b.dep);
-      const wait = depCLJ - arrCLJ;
-      if (wait >= 2 && wait <= 25) {
-        options.push({
-          src_clj: a,
-          clj_imw: b,
-          waitMins: wait,
-          // helpful for display:
-          change: {
-            fromPlatform: a.platformTo,
-            toPlatform: b.platformFrom,
-          },
-        });
-      }
+    const dep = ft.dep;
+    const arr = tt.arr;
+
+    if (!inWindow(dep, startHHMM, BACK_MINS, FWD_MINS) && !inWindow(arr, startHHMM, BACK_MINS, FWD_MINS)) {
+      continue;
+    }
+
+    out.legs.src_clj.push({
+      serviceUid: s.serviceUid || s.uid || "",
+      from: SRC,
+      to: CLJ,
+      dep,
+      arr,
+      depDelayMins: ft.depDelayMins || 0,
+      arrDelayMins: tt.arrDelayMins || 0,
+      platformFrom: normPlatform(from.platform),
+      platformTo: normPlatform(to.platform),
+      status: statusFromDelays(ft.depDelayMins, tt.arrDelayMins, cancelled),
+    });
+  }
+
+  // Normalise legs CLJ->IMW
+  for (const s of cljServices) {
+    const from = pickLoc(s, CLJ);
+    const to = pickLoc(s, IMW);
+    if (!from || !to) continue;
+
+    const ft = locTimes(from);
+    const tt = locTimes(to);
+    const cancelled = !!(from.isCancelled || to.isCancelled || s.isCancelled);
+
+    const dep = ft.dep;
+    const arr = tt.arr;
+
+    if (!inWindow(dep, startHHMM, BACK_MINS, FWD_MINS) && !inWindow(arr, startHHMM, BACK_MINS, FWD_MINS)) {
+      continue;
+    }
+
+    out.legs.clj_imw.push({
+      serviceUid: s.serviceUid || s.uid || "",
+      from: CLJ,
+      to: IMW,
+      dep,
+      arr,
+      depDelayMins: ft.depDelayMins || 0,
+      arrDelayMins: tt.arrDelayMins || 0,
+      platformFrom: normPlatform(from.platform),
+      platformTo: normPlatform(to.platform),
+      status: statusFromDelays(ft.depDelayMins, tt.arrDelayMins, cancelled),
+    });
+  }
+
+  // Pair transfers: SRC->CLJ arrival then CLJ->IMW departure within MIN/MAX transfer mins
+  const transfers = [];
+  for (const a of out.legs.src_clj) {
+    if (!a.arr) continue;
+    const aArrMins = hhmmToMins(a.arr);
+
+    for (const b of out.legs.clj_imw) {
+      if (!b.dep) continue;
+      const bDepMins = hhmmToMins(b.dep);
+
+      const wait = bDepMins - aArrMins;
+      if (wait < MIN_XFER_MINS || wait > MAX_XFER_MINS) continue;
+
+      // Shape expected by index.html
+      transfers.push({
+        srcDep: a.dep,
+        srcPlat: a.platformFrom || "",
+        cljArr: a.arr,
+        cljPlatArr: a.platformTo || "",
+        transferMins: wait,
+        cljDep: b.dep,
+        cljDepUsed: b.dep, // “used” = realtime already baked into dep
+        cljPlatDep: b.platformFrom || "",
+        imwArr: b.arr,
+        imwArrUsed: b.arr, // realtime already baked into arr
+        imwPlat: b.platformTo || "",
+        status: a.status === "delayed" || b.status === "delayed" ? "delayed" : "on_time",
+      });
     }
   }
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    date: `${dateParts.yyyy}-${dateParts.mm}-${dateParts.dd}`,
-    window: {
-      tz: LONDON_TZ,
-      startHHMM,
-      backMins,
-      fwdMins,
-    },
-    searches: {
-      src_clj: leg1Search.url,
-      clj_imw: leg2Search.url,
-    },
-    legs: { src_clj: leg1, clj_imw: leg2 },
-    transfers: options.sort((x, y) => hmToMins(x.src_clj.dep) - hmToMins(y.src_clj.dep)),
-  };
+  // Keep a sensible number, sorted by earliest SRC departure then shortest transfer
+  transfers.sort((x, y) => {
+    const xd = hhmmToMins(x.srcDep);
+    const yd = hhmmToMins(y.srcDep);
+    if (xd !== yd) return xd - yd;
+    return x.transferMins - y.transferMins;
+  });
 
-  fs.writeFileSync(OUT_XFER, JSON.stringify(payload, null, 2), "utf8");
-  console.log(`Wrote ${OUT_XFER}: leg1=${leg1.length} leg2=${leg2.length} xfers=${options.length} start=${startHHMM}`);
+  out.transfers = transfers.slice(0, 12);
+
+  fs.writeFileSync("xfer.json", JSON.stringify(out, null, 2));
+  console.log(`Wrote xfer.json with ${out.transfers.length} transfer options (${out.date} ${out.window.startHHMM}).`);
 }
 
-build().catch((e) => {
-  console.error(String(e));
-  process.exit(2);
+main().catch((e) => {
+  console.error(e?.stack || String(e));
+  process.exit(1);
 });
