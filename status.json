@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-14T07:17:21.142Z",
+  "generatedAt": "2026-02-14T07:34:25.898Z",
   "date": "2026-02-14",
   "serviceUid": "W57874",
   "runDate": "2026-02-14",
@@ -9,20 +9,20 @@
   "origin": {
     "bookedArrival": "0744",
     "bookedDeparture": "0744",
-    "realtimeArrival": "0801",
-    "realtimeDeparture": "0802",
-    "arrivalDelayMins": 17,
-    "departureDelayMins": 18,
+    "realtimeArrival": "0800",
+    "realtimeDeparture": "0801",
+    "arrivalDelayMins": 16,
+    "departureDelayMins": 17,
     "platform": "1",
     "isCancelled": false
   },
   "destination": {
     "bookedArrival": "0754",
     "bookedDeparture": "0755",
-    "realtimeArrival": "0811",
-    "realtimeDeparture": "0812",
-    "arrivalDelayMins": 17,
-    "departureDelayMins": 17,
+    "realtimeArrival": "0810",
+    "realtimeDeparture": "0811",
+    "arrivalDelayMins": 16,
+    "departureDelayMins": 16,
     "platform": "9",
     "isCancelled": false
   },
