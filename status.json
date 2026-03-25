@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-25T07:53:12.635Z",
+  "generatedAt": "2026-03-25T08:08:53.965Z",
   "date": "2026-03-25",
   "serviceUid": "G84856",
   "runDate": "2026-03-25",
@@ -19,14 +19,14 @@
   "destination": {
     "bookedArrival": "0754",
     "bookedDeparture": "0755",
-    "realtimeArrival": "0754",
-    "realtimeDeparture": "0755",
-    "arrivalDelayMins": 0,
-    "departureDelayMins": 0,
+    "realtimeArrival": "0755",
+    "realtimeDeparture": "0757",
+    "arrivalDelayMins": 1,
+    "departureDelayMins": 2,
     "platform": "9",
     "isCancelled": false
   },
-  "status": "on_time",
+  "status": "delayed",
   "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2026/03/25/0744",
   "detailUrl": "https://api.rtt.io/api/v1/json/service/G84856/2026/03/25"
 }
