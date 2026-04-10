@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-04-10T05:35:02.482Z",
+  "generatedAt": "2026-04-10T06:15:41.796Z",
   "date": "2026-04-10",
   "window": {
     "tz": "Europe/London",
-    "startHHMM": "0634",
+    "startHHMM": "0715",
     "backMins": 40,
     "fwdMins": 180,
-    "queryStartHHMM": "0554"
+    "queryStartHHMM": "0635"
   },
   "searches": {
-    "src_clj": "https://api.rtt.io/api/v1/json/search/SRC/to/CLJ/2026/04/10/0554",
-    "clj_imw": "https://api.rtt.io/api/v1/json/search/CLJ/to/IMW/2026/04/10/0554"
+    "src_clj": "https://api.rtt.io/api/v1/json/search/SRC/to/CLJ/2026/04/10/0635",
+    "clj_imw": "https://api.rtt.io/api/v1/json/search/CLJ/to/IMW/2026/04/10/0635"
   },
   "legs": {
     "src_clj": [],
