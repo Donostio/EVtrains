@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T06:49:03.852Z",
+  "generatedAt": "2026-05-08T17:38:07.932Z",
   "date": "2026-05-08",
   "serviceUid": "G84856",
   "runDate": "2026-05-08",
@@ -19,9 +19,9 @@
   "destination": {
     "bookedArrival": "0754",
     "bookedDeparture": "0755",
-    "realtimeArrival": "0754",
+    "realtimeArrival": "0753",
     "realtimeDeparture": "0755",
-    "arrivalDelayMins": 0,
+    "arrivalDelayMins": -1,
     "departureDelayMins": 0,
     "platform": "9",
     "isCancelled": false
