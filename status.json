@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-07-03T20:08:35.789Z",
-  "date": "2026-07-03",
-  "serviceUid": "C22603",
-  "runDate": "2026-07-03",
+  "generatedAt": "2026-07-04T17:30:54.467Z",
+  "date": "2026-07-04",
+  "serviceUid": "W27687",
+  "runDate": "2026-07-04",
   "originCRS": "STE",
   "destinationCRS": "WIM",
   "gbttBookedDeparture": "0744",
@@ -27,6 +27,6 @@
     "isCancelled": false
   },
   "status": "on_time",
-  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2026/07/03/0744",
-  "detailUrl": "https://api.rtt.io/api/v1/json/service/C22603/2026/07/03"
+  "searchUrl": "https://api.rtt.io/api/v1/json/search/STE/to/WIM/2026/07/04/0744",
+  "detailUrl": "https://api.rtt.io/api/v1/json/service/W27687/2026/07/04"
 }
